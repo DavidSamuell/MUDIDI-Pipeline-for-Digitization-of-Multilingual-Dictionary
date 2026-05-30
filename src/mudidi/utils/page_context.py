@@ -88,6 +88,43 @@ def resolve_page_context(
     return PageContext(previous=previous, next=next_page, current_stem=stem)
 
 
+def format_current_page_block(page_context: PageContext, *, ocr: bool = False) -> str:
+    """Identify the page being processed (matches the last page image sent)."""
+    if ocr:
+        return (
+            f"<current_page>\n"
+            f"page: {page_context.current_stem}\n"
+            f"Transcribe every line visible on this page image (header, body, footer). "
+            f"Do not skip lines.\n"
+            f"</current_page>"
+        )
+    return (
+        f"<current_page>\n"
+        f"page: {page_context.current_stem}\n"
+        f"Emit MDF for lexicon records whose main headword (\\lx) starts on this page.\n"
+        f"Include all sub-fields (\\se, \\va, senses, examples) for those entries even when "
+        f"they print on the next page — copy characters from <next_page> transcript.\n"
+        f"Do not emit continuation lines from entries whose \\lx started on a previous page.\n"
+        f"</current_page>"
+    )
+
+
+def format_page_image_order_note(page_context: PageContext) -> str:
+    """Explain how page images are ordered in the user message."""
+    parts: list[str] = []
+    if page_context.previous is not None:
+        parts.append(f"1. previous page ({page_context.previous.stem})")
+    if page_context.next is not None:
+        idx = len(parts) + 1
+        parts.append(f"{idx}. next page ({page_context.next.stem})")
+    current_idx = len(parts) + 1
+    parts.append(f"{current_idx}. CURRENT page ({page_context.current_stem}) — emit MDF for this page")
+    return (
+        "Page images in this message (in order):\n"
+        + "\n".join(f"  {line}" for line in parts)
+    )
+
+
 def format_neighbor_text_block(
     page: Optional[NeighborPage],
     *,
@@ -103,20 +140,10 @@ def format_neighbor_text_block(
     return (
         f"<{label}>\n"
         f"page: {page.stem}\n"
-        f"Use this page only for entry-boundary context.{transcript_section}\n"
+        f"Cross-page entry context. Use this transcript to (a) complete sub-fields "
+        f"for entries owned by the CURRENT page when they overflow here, and "
+        f"(b) detect lines at the top of the CURRENT page that belong to an entry "
+        f"whose \\lx started on this neighbor — exclude those from the current output."
+        f"{transcript_section}\n"
         f"</{label}>"
-    )
-
-
-def format_page_boundary_rules() -> str:
-    """Shared boundary instructions for inference prompts."""
-    return (
-        "Page boundary rules:\n"
-        "- Output only content that belongs to the CURRENT page.\n"
-        "- INCLUDE entries that START on the current page even if they continue "
-        "onto the next page.\n"
-        "- EXCLUDE entries that STARTED on the previous page and only continue "
-        "on the current page.\n"
-        "- Neighbor pages are context for disambiguation only; do not transcribe "
-        "their full text into the current page output."
     )

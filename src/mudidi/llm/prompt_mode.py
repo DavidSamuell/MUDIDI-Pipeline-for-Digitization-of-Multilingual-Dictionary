@@ -7,7 +7,7 @@ from mudidi.llm.prompt_store import get_prompt_store
 
 _MODE_SUFFIXED = frozenset(
     {
-        "stage_1_flat_system",
+        "stage_1_system",
         "stage_2_direct_mdf_system",
         "stage_2_direct_mdf_user",
     }

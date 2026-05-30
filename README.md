@@ -225,8 +225,9 @@ uv run mudidi run \
   --stage all \
   --strategy two_stage \
   --stage1-mode flat \
-  --model gemini/gemini-3-flash-preview \
-  --stage2-reasoning high
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 Place `dictionary_languages.yaml` in `my-dictionary/` (parent of `snippets/`). MUDIDI loads it automatically when you run the command above.
@@ -246,8 +247,9 @@ uv run mudidi run \
   --stage all \
   --strategy two_stage \
   --stage1-mode flat \
-  --model gemini/gemini-3-flash-preview \
-  --stage2-reasoning high
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 After PDF split, stems are `page_{N}` where `N` is the **PDF page number** from `--dict-pages` (e.g. `--parse-rules-page page_97` for PDF page 97).
@@ -288,7 +290,9 @@ uv run mudidi run \
   --output-dir my-dictionary/output \
   --stage all \
   --stage1-mode flat \
-  --model gemini/gemini-3-flash-preview
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 **Curated rules (skip Pass 1 LLM):**
@@ -300,7 +304,8 @@ uv run mudidi run \
   --output-dir my-dictionary/output \
   --stage 2 \
   --stage1-source predictions \
-  --model gemini/gemini-3-flash-preview
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 With `--stage all`, MUDIDI transcribes sample page(s) first if their Stage 1 output is not already present, then runs Pass 1 discovery before bulk Pass 2.
@@ -348,7 +353,8 @@ uv run mudidi run \
   --stage 2 \
   --strategy two_stage \
   --stage1-source predictions \
-  --model gemini/gemini-3-flash-preview
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 **PDF:**
@@ -363,7 +369,8 @@ uv run mudidi run \
   --stage 2 \
   --strategy two_stage \
   --stage1-source predictions \
-  --model gemini/gemini-3-flash-preview
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 Stage 2 reads `{output_dir}/stage-1/{page}/{page}_stage1_flat.txt` by default in inference mode.
@@ -410,7 +417,7 @@ Get full flag lists:
 uv run mudidi run --help
 ```
 
-Model, strategy, and tuning flags (e.g. `--model`, `--stage1-mode`, `--overwrite`) are passed on the same command line — they are forwarded automatically:
+Model and tuning flags (`--model`, `--stage-1-model`, `--stage-2-pass-1-model`, `--stage-2-pass-2-model`, `--stage1-mode`, `--overwrite`, etc.) are registered on `mudidi run` — see [Model selection](#model-selection) above.
 
 ```bash
 # directory input
@@ -418,8 +425,10 @@ uv run mudidi run \
   --pages my-dictionary/snippets \
   --parse-rules-page page_97 \
   --output-dir my-dictionary/output \
-  --model openrouter/openai/gpt-5.5 \
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
   --stage1-mode flat \
+  --stage2-reasoning medium \
   --overwrite
 
 # PDF input
@@ -428,8 +437,10 @@ uv run mudidi run \
   --dict-pages 97-123 \
   --parse-rules-page page_97 \
   --output-dir my-dictionary/output \
-  --model openrouter/openai/gpt-5.5 \
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
   --stage1-mode flat \
+  --stage2-reasoning medium \
   --overwrite
 ```
 
@@ -460,15 +471,58 @@ uv run mudidi run \
 | `--parse-rules-gold` | off | Benchmark: load gold `parse-rules.json` from `outputs/stage-2-gold/` (skips Pass 1 LLM) |
 | `--stage1-source {gold,predictions}` | `predictions` | Stage 2 input source (inference uses predictions) |
 
-### Model and strategy flags
+### Model selection
 
-Pass these on the same command line (forwarded to the extraction engine):
+Use **`--model`** to set the same litellm model string for every step (Stage 1, Stage 2 Pass 1 parse-rules discovery, Stage 2 Pass 2 MDF extraction). Override individual steps when you want different models or reasoning budgets.
+
+**Typical inference setup:** Gemini 3 Flash for Stage 1 transcription, Gemini 3.1 Pro for both Stage 2 passes, with `--stage2-reasoning medium`:
+
+```bash
+--stage-1-model gemini/gemini-3-flash-preview \
+--model gemini/gemini-3.1-pro-preview \
+--stage2-reasoning medium
+```
+
+| Flag | Applies to | Default |
+|------|------------|---------|
+| `--model` | All steps when no step-specific flag is set | `gemini/gemini-3-flash-preview` |
+| `--stage-1-model` | Stage 1 page transcription | `--model` |
+| `--stage-2-pass-1-model` | Stage 2 Pass 1 (`parse-rules.json` discovery) | `--model` |
+| `--stage-2-pass-2-model` | Stage 2 Pass 2 (per-page MDF) | `--model` |
+
+Examples:
+
+```bash
+# Recommended: Flash for Stage 1 OCR, Pro for Stage 2 (Pass 1 + Pass 2)
+uv run mudidi run \
+  --pages my-dictionary/snippets \
+  --output-dir my-dictionary/output \
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
+
+# Same model everywhere
+uv run mudidi run \
+  --pages my-dictionary/snippets \
+  --output-dir my-dictionary/output \
+  --model gemini/gemini-3-flash-preview
+
+# Full per-step control (different model per pass)
+uv run mudidi run \
+  --pages my-dictionary/evenki-russian.pdf \
+  --dict-pages 97-123 \
+  --output-dir my-dictionary/output \
+  --stage-1-model gemini/gemini-3-flash-preview \
+  --stage-2-pass-1-model gemini/gemini-3.1-pro-preview \
+  --stage-2-pass-2-model openrouter/openai/gpt-5.5 \
+  --stage2-reasoning medium
+```
+
+### Other strategy and tuning flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--strategy` | `two_stage` | `two_stage` (LLM) or `vlm_ocr` (specialised VLM backends) |
-| `--model` | `gemini/gemini-3-flash-preview` | Stage 1 model (litellm string) |
-| `--structure-model` | same as `--model` | Stage 2 model |
 | `--stage1-mode {column,flat}` | `column` | Stage 1 output format; use **`flat`** for new dictionaries |
 | `--stage1-reasoning {none,low,medium,high}` | `low` | Stage 1 reasoning effort |
 | `--stage2-reasoning {low,medium,high}` | `low` | Stage 2 reasoning effort |
@@ -544,7 +598,8 @@ uv run mudidi run \
   --stage 2 \
   --toolbox-pdf my-dictionary/toolbox-subset.pdf \
   --stage1-mode flat \
-  --model gemini/gemini-3-flash-preview
+  --model gemini/gemini-3.1-pro-preview \
+  --stage2-reasoning medium
 ```
 
 Reserve the full manual for small pilots or when Pass 2 quality still gaps after parse-rules curation and a trimmed PDF.
@@ -563,8 +618,9 @@ Each top-level key is a **prompt id** (for example `stage_1_user_alphabet`). The
 
 | Field | Role |
 |-------|------|
+| `description` | **Documentation only** — when this prompt is used (benchmark vs inference, which pipeline step). Not sent to the model. |
 | `prompt` | Template text sent to the model (may contain `{name}` placeholders). |
-| `variables` | **Documentation only** — not enforced by the loader. |
+| `variables` | **Documentation only** — placeholder cheat sheet for editors. |
 
 #### About `variables`
 
@@ -588,7 +644,7 @@ Typical **inference** run: `--stage1-mode flat`, alphabet + OCR hints on, introd
 
 Two messages: **system** (one prompt id) and **user** (text + images).
 
-**`role: system`** — from `stage_1_flat_system_inference` (placeholders filled):
+**`role: system`** — from `stage_1_system_inference` (placeholders filled):
 
 ```
 You are a precise OCR transcription system specialising in historical and minority-language dictionaries.
@@ -847,8 +903,8 @@ Introduction images are **not** sent in Pass 2; conventions are captured in the 
 
 | Step | System prompt id | User text built from |
 |------|------------------|----------------------|
-| Stage 1 flat | `stage_1_flat_system_{benchmark\|inference}` | `stage_1_user_alphabet`? + `stage_1_user_ocr_reference`? + `stage_1_user_closing` + guides |
-| Stage 1 column | `stage_1_system` | same user blocks |
+| Stage 1 (default) | `stage_1_system_{benchmark\|inference}` | `stage_1_user_alphabet`? + `stage_1_user_ocr_reference`? + `stage_1_user_closing` + guides |
+| Stage 1 column | `stage_1_column_system` | same user blocks |
 | Stage 2 Pass 1 (single sample) | `stage_2_pass_1` (+ nested `mdf_marker_reference`) | `stage_2_pass_2` |
 | Stage 2 Pass 1 (multi sample) | `stage_2_pass_1` (+ nested `mdf_marker_reference`) | `stage_2_pass_2_multi` |
 | Stage 2 Pass 2 | `stage_2_direct_mdf_system_{benchmark\|inference}` | `stage_2_direct_mdf_user_{benchmark\|inference}` + `{field_block}` + `{toolbox_section}` + neighbors |
@@ -859,7 +915,7 @@ Some steps use a **base id** plus a mode suffix. [`resolve_prompt_id()`](src/mud
 
 | Base id | Suffixed variants |
 |---------|-------------------|
-| `stage_1_flat_system` | `_benchmark`, `_inference` |
+| `stage_1_system` | `_benchmark`, `_inference` |
 | `stage_2_direct_mdf_system` | `_benchmark`, `_inference` |
 | `stage_2_direct_mdf_user` | `_benchmark`, `_inference` |
 

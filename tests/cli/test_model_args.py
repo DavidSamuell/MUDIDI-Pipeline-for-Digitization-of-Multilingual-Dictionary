@@ -1,0 +1,49 @@
+"""Tests for CLI model resolution."""
+
+from __future__ import annotations
+
+import argparse
+
+from mudidi.cli.model_args import DEFAULT_MODEL, resolve_stage_models
+
+
+def _args(**kwargs: object) -> argparse.Namespace:
+    base = {
+        "model": DEFAULT_MODEL,
+        "stage_1_model": None,
+        "stage_2_pass_1_model": None,
+        "stage_2_pass_2_model": None,
+        "structure_model": None,
+    }
+    base.update(kwargs)
+    return argparse.Namespace(**base)
+
+
+def test_model_sets_all_steps() -> None:
+    models = resolve_stage_models(_args(model="provider/all"))
+    assert models.stage_1 == "provider/all"
+    assert models.stage_2_pass_1 == "provider/all"
+    assert models.stage_2_pass_2 == "provider/all"
+
+
+def test_per_step_overrides() -> None:
+    models = resolve_stage_models(
+        _args(
+            model="provider/default",
+            stage_1_model="provider/s1",
+            stage_2_pass_1_model="provider/s2p1",
+            stage_2_pass_2_model="provider/s2p2",
+        )
+    )
+    assert models.stage_1 == "provider/s1"
+    assert models.stage_2_pass_1 == "provider/s2p1"
+    assert models.stage_2_pass_2 == "provider/s2p2"
+
+
+def test_legacy_structure_model_fills_stage_2() -> None:
+    models = resolve_stage_models(
+        _args(model="provider/default", structure_model="provider/legacy")
+    )
+    assert models.stage_1 == "provider/default"
+    assert models.stage_2_pass_1 == "provider/legacy"
+    assert models.stage_2_pass_2 == "provider/legacy"

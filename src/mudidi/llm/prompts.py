@@ -11,34 +11,49 @@ from mudidi.llm.prompt_mode import resolve_prompt_id
 from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.utils.page_context import (
     PageContext,
-    format_neighbor_text_block,
-    format_page_boundary_rules,
+    format_current_page_block,
+    format_page_image_order_note,
 )
+
+
+def page_boundary_rules_prompt() -> str:
+    """Page-boundary instructions from ``page_boundary_rules`` in PROMPT.json (Stage 2 only)."""
+    return get_prompt_store().get("page_boundary_rules")
+
+
+def stage_1_neighbor_context_prompt() -> str:
+    """Optional neighbor-image hint for Stage 1 pure OCR (not entry-boundary rules)."""
+    return get_prompt_store().get("stage_1_neighbor_context")
 
 
 def stage_1_system_prompt(mode: PromptMode = "benchmark") -> str:
     """Stage 1 column-mode system prompt."""
-    return get_prompt_store().get("stage_1_system")
+    return get_prompt_store().get("stage_1_column_system")
+
+
+def format_stage1_page_context_preamble(page_context: PageContext) -> str:
+    """User-turn preamble for Stage 1 inference: label current page, not boundary rules."""
+    return "\n\n".join(
+        [
+            stage_1_neighbor_context_prompt(),
+            format_current_page_block(page_context, ocr=True),
+            format_page_image_order_note(page_context),
+        ]
+    )
 
 
 def stage_1_flat_system_prompt(
     mode: PromptMode = "benchmark",
     page_context: PageContext | None = None,
 ) -> str:
-    """Stage 1 flat-mode system prompt."""
+    """Stage 1 flat-mode system prompt.
+
+    Inference uses the same OCR instructions as benchmark; page labeling lives in
+    the user-turn preamble (see ``format_stage1_page_context_preamble``).
+    """
+    del page_context  # neighbors handled in user preamble, not system prompt
     store = get_prompt_store()
-    prompt_id = resolve_prompt_id("stage_1_flat_system", mode)
-    if mode == "inference" and page_context is not None:
-        return store.format(
-            prompt_id,
-            page_boundary_rules=format_page_boundary_rules(),
-            previous_page_context=format_neighbor_text_block(
-                page_context.previous, label="previous_page"
-            ),
-            next_page_context=format_neighbor_text_block(
-                page_context.next, label="next_page"
-            ),
-        )
+    prompt_id = resolve_prompt_id("stage_1_system", mode)
     return store.get(prompt_id)
 
 

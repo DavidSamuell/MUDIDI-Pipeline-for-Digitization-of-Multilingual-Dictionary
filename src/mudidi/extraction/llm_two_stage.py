@@ -60,6 +60,7 @@ from mudidi.llm.prompts import (
     stage_1_neighbor_image_urls,
     stage_1_system_prompt,
     stage_1_user,
+    format_stage1_page_context_preamble,
 )
 from mudidi.utils.image import image_data_url, resolve_mime_type
 from mudidi.utils.io import read_docx_text
@@ -149,7 +150,8 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
     Args:
         transcribe_model:   Model used for Stage 1 (transcription).
-        structure_model:    Model used for Stage 2 (MDF extraction). Defaults to transcribe_model.
+        stage2_pass1_model: Model used for Stage 2 Pass 1 (parse-rules discovery).
+        stage2_pass2_model: Model used for Stage 2 Pass 2 (per-page MDF).
         alphabet_path:      Path to the alphabet file (.txt / .png / .jpg).
                             If an image, it is sent as a vision input to Stage 1.
                             If text, it is embedded in the prompt.
@@ -161,7 +163,8 @@ class TwoStageLLMExtraction(ExtractionStrategy):
     def __init__(
         self,
         transcribe_model: str = "gemini/gemini-3-flash-preview",
-        structure_model: Optional[str] = None,
+        stage2_pass1_model: Optional[str] = None,
+        stage2_pass2_model: Optional[str] = None,
         alphabet_path: Optional[str] = None,
         intro_text: str = "",
         intro_image_paths: Optional[List[str]] = None,
@@ -183,7 +186,8 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         if stage1_mode not in ("column", "flat"):
             raise ValueError(f"stage1_mode must be 'column' or 'flat', got {stage1_mode!r}")
         self.transcribe_model = transcribe_model
-        self.structure_model = structure_model or transcribe_model
+        self.stage2_pass1_model = stage2_pass1_model or transcribe_model
+        self.stage2_pass2_model = stage2_pass2_model or transcribe_model
         self.alphabet_path = alphabet_path
         self.intro_text = intro_text
         self.intro_image_paths = intro_image_paths or []
@@ -384,6 +388,9 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             ocr_hint=ocr_hint,
             guides=self.stage1_guides,
         )
+        if self.prompt_mode == "inference" and page_context is not None:
+            preamble = format_stage1_page_context_preamble(page_context)
+            user_text = f"{preamble}\n\n{user_text}"
 
         content: list = [{"type": "text", "text": user_text}]
         if self.prompt_mode == "inference" and page_context is not None:
@@ -484,7 +491,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                     transcription=sample_text,
                     sample_image=Path(sample_image),
                     intro_images=intro_paths,
-                    model=self.structure_model,
+                    model=self.stage2_pass1_model,
                     reasoning_effort=self.stage2_reasoning_effort,
                     languages_config=self.dictionary_languages,
                     dictionary_name=dictionary_name,
@@ -496,7 +503,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             else:
                 discover_kwargs = dict(
                     intro_images=intro_paths,
-                    model=self.structure_model,
+                    model=self.stage2_pass1_model,
                     reasoning_effort=self.stage2_reasoning_effort,
                     languages_config=self.dictionary_languages,
                     dictionary_name=dictionary_name,
@@ -534,7 +541,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             transcription=transcribed_text,
             image_path=image_path,
             field_map=field_map,
-            model=self.structure_model,
+            model=self.stage2_pass2_model,
             reasoning_effort=self.stage2_reasoning_effort,
             guides=self.stage2_guides,
             toolbox_pdf=self.stage2_toolbox_pdf,

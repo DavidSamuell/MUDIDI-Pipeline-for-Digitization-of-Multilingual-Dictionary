@@ -48,6 +48,7 @@ from mudidi.utils.parse_rules_pages import (
     normalize_parse_rules_page_stems,
     resolve_parse_rules_sample_images,
 )
+from mudidi.cli.model_args import attach_stage_models, register_model_arguments
 from mudidi.utils.pdf_split import extract_pdf_pages, parse_page_spec
 from mudidi.utils.stage1_input import read_stage1_transcript_text
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
@@ -434,9 +435,9 @@ def _build_stage1_manifest(
         "stage1_mode": getattr(args, "stage1_mode", "column"),
         "flat_spec_version": FLAT_SPEC_VERSION,
         "git_sha": _git_short_sha(),
-        "model": args.model,
+        "model": args.stage_models.stage_1,
         "reasoning_effort": args.stage1_reasoning_effort,
-        "render_pdfs": _needs_pdf_rasterization(args.model),
+        "render_pdfs": _needs_pdf_rasterization(args.stage_models.stage_1),
         "alphabet": _alphabet_manifest_entry(args.alphabet),
         "ocr_hint": {
             "used": bool(ocr_dir),
@@ -470,7 +471,9 @@ def _build_stage2_manifest(
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "strategy": args.strategy,
         "git_sha": _git_short_sha(),
-        "model": args.structure_model or args.model,
+        "model": args.stage_models.stage_2_pass_2,
+        "stage_2_pass_1_model": args.stage_models.stage_2_pass_1,
+        "stage_2_pass_2_model": args.stage_models.stage_2_pass_2,
         "reasoning_effort": args.stage2_reasoning_effort,
         "stage2_output_format": "mdf",
         "prompts_file": str(
@@ -537,8 +540,9 @@ def _build_strategy(
     """Instantiate the extraction strategy."""
     if args.strategy == "two_stage":
         return TwoStageLLMExtraction(
-            transcribe_model=args.model,
-            structure_model=args.structure_model or args.model,
+            transcribe_model=args.stage_models.stage_1,
+            stage2_pass1_model=args.stage_models.stage_2_pass_1,
+            stage2_pass2_model=args.stage_models.stage_2_pass_2,
             alphabet_path=args.alphabet or None,
             intro_text=intro_text,
             intro_image_paths=intro_image_paths,
@@ -714,17 +718,7 @@ Examples:
         "Required unless --samples-dir is used.",
     )
     # Model / strategy
-    parser.add_argument(
-        "-m",
-        "--model",
-        default="gemini/gemini-3-flash-preview",
-        help="Primary LLM model (Stage 1 for two_stage). Default: gemini/gemini-3-flash-preview",
-    )
-    parser.add_argument(
-        "--structure-model",
-        default=None,
-        help="Stage 2 model for two_stage (defaults to --model).",
-    )
+    register_model_arguments(parser)
     parser.add_argument(
         "--strategy",
         choices=_STRATEGY_CHOICES,
@@ -942,7 +936,7 @@ Examples:
         default=None,
         help="Stage-2 experiment slot under outputs/stage-2/<name>/. Defaults "
         "to --experiment-name. Use a different value to sweep stage-2 "
-        "configurations (intro, structure-model, reasoning, stage-2 guides) "
+        "configurations (intro, stage-2 models, reasoning, stage-2 guides) "
         "against a fixed stage-1 baseline; the "
         "stage-2 manifest records --experiment-name as its stage1_source.",
     )
@@ -1122,6 +1116,7 @@ Examples:
     )
 
     args = parser.parse_args()
+    attach_stage_models(args)
 
     if getattr(args, "pages", None):
         args.input_image = args.pages
@@ -1168,7 +1163,7 @@ Examples:
         and getattr(args, "stage1_source", "gold") == "predictions"
         and args.strategy == "two_stage"
         and args.experiment_name == "default"
-        and not getattr(args, "samples_dir", None)
+        and is_benchmark
     ):
         parser.error(
             "--stage1-source predictions requires an explicit --experiment-name "
@@ -1620,10 +1615,24 @@ def _run_single_entry(args, parser) -> int:
     def _transcript_loader(stem: str) -> str:
         if stem in transcript_cache:
             return transcript_cache[stem]
-        flat_path = stage1_flat_path(stage1_dir / stem, stem)
-        if flat_path.is_file():
-            return read_stage1_transcript_text(flat_path)
+        resolved = resolve_stage1_transcript_for_stage2(
+            output_dir,
+            stem,
+            getattr(args, "stage1_input", "auto"),
+            source=getattr(args, "stage1_source", "gold"),
+            experiment_name=args.experiment_name,
+            stage1_output_subdir=args.stage1_output_subdir,
+            inference_layout=layout.inference,
+        )
+        if resolved is not None and resolved.is_file():
+            text = read_stage1_transcript_text(resolved)
+            transcript_cache[stem] = text
+            return text
         return ""
+
+    if args.prompt_mode == "inference" and args.stage in ("2", "both"):
+        for image_file in images:
+            _transcript_loader(image_file.stem)
 
     # ── Batch loop ─────────────────────────────────────────────────────────────
     total = len(images)
@@ -1634,7 +1643,8 @@ def _run_single_entry(args, parser) -> int:
     print(f"\nFound {total} image(s) in {input_dir}")
     print(f"Output directory: {output_dir}")
     print(
-        f"Strategy: {args.strategy} | Model: {args.model} | Stage: {args.stage} | Overwrite: {args.overwrite}"
+        f"Strategy: {args.strategy} | Models: {args.stage_models.summary()} | "
+        f"Stage: {args.stage} | Overwrite: {args.overwrite}"
     )
     if args.strategy == "two_stage":
         if args.stage in ("1", "both"):
@@ -1843,9 +1853,15 @@ def _run_single_entry(args, parser) -> int:
 
             processed += 1
             if args.stage in ("1", "both") and args.strategy == "two_stage":
-                flat_out = stage1_flat_path(stage1_page_dir, stem)
-                if flat_out.is_file():
-                    transcript_cache[stem] = read_stage1_transcript_text(flat_out)
+                if stem not in transcript_cache:
+                    if getattr(args, "stage1_mode", "column") == "flat":
+                        flat_out = stage1_flat_path(stage1_page_dir, stem)
+                        if flat_out.is_file():
+                            transcript_cache[stem] = read_stage1_transcript_text(flat_out)
+                    else:
+                        tsv_out = stage1_tsv_path(stage1_page_dir, stem)
+                        if tsv_out.is_file():
+                            transcript_cache[stem] = read_stage1_transcript_text(tsv_out)
 
         except Exception as exc:
             print(f"  ERROR processing {image_file.name}: {exc}")

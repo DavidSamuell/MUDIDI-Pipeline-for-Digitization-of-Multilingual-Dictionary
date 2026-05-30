@@ -1,10 +1,11 @@
 """
 Load LLM prompt templates from ``assets/PROMPT.json``.
 
-Each entry maps a prompt id to ``prompt`` text and a ``variables`` list describing
-placeholders (Python ``str.format`` keys and optional XML wrapper tags). Edit the
-JSON file to customize prompts at inference time; the store reloads when the
-file modification time changes.
+Each entry maps a prompt id to ``prompt`` text, an optional human-readable
+``description``, and a ``variables`` list describing placeholders (Python
+``str.format`` keys and optional XML wrapper tags). Edit the JSON file to
+customize prompts at inference time; the store reloads when the file
+modification time changes.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ class PromptVariable(BaseModel):
 class PromptDefinition(BaseModel):
     """One named prompt template and its placeholder metadata."""
 
+    description: str = ""
     prompt: str
     variables: list[PromptVariable] = Field(default_factory=list)
 

@@ -18,10 +18,15 @@ from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.schemas.field_map import FieldMapPrompt
 from mudidi.utils.image import image_data_url, resolve_mime_type
 from mudidi.utils.mdf_export import normalize_mdf_text
+from mudidi.llm.prompts import (
+    format_current_page_block,
+    format_stage1_page_context_preamble,
+    page_boundary_rules_prompt,
+)
 from mudidi.utils.page_context import (
     PageContext,
     format_neighbor_text_block,
-    format_page_boundary_rules,
+    format_page_image_order_note,
 )
 from mudidi.utils.pdf_render import needs_pdf_rasterization
 
@@ -38,7 +43,7 @@ def direct_mdf_system_prompt(
     if mode == "inference":
         return store.format(
             prompt_id,
-            page_boundary_rules=format_page_boundary_rules(),
+            page_boundary_rules=page_boundary_rules_prompt(),
         )
     return store.get(prompt_id)
 
@@ -89,17 +94,21 @@ def _neighbor_format_kwargs(
     if mode != "inference" or page_context is None:
         return {
             "page_boundary_rules": "",
+            "current_page_context": "",
             "previous_page_context": "",
             "next_page_context": "",
+            "page_image_order": "",
         }
     return {
-        "page_boundary_rules": format_page_boundary_rules(),
+        "page_boundary_rules": page_boundary_rules_prompt(),
+        "current_page_context": format_current_page_block(page_context),
         "previous_page_context": format_neighbor_text_block(
             page_context.previous, label="previous_page"
         ),
         "next_page_context": format_neighbor_text_block(
             page_context.next, label="next_page"
         ),
+        "page_image_order": format_page_image_order_note(page_context),
     }
 
 

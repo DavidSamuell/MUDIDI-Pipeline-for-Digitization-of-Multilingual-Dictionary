@@ -65,3 +65,5 @@ examples/evaluation/*.tex
 *eval_cache.json
 evaluations/*prototype*
 evaluations/audit_*.csv
+inputs/
+outputs/

@@ -149,7 +149,7 @@ The rendered `<dictionary_languages>` block is appended to the **schema-mode** S
 | Parameter | CLI flag | Default | Notes |
 | --- | --- | --- | --- |
 | Stage 2 mode | `--stage2-mode` | `direct_mdf` | `direct_mdf` \| `schema` |
-| Structure model | `--model` / `--structure-model` | (required) | Used for Pass 1 + Pass 2 in `direct_mdf`; `--structure-model` overrides `--model` for Stage 2 only |
+| Structure model | `--model` / `--stage-2-pass-1-model` / `--stage-2-pass-2-model` | (required) | Pass 1 and Pass 2 can use different models; `--model` sets both unless overridden |
 | Reasoning effort | `--stage2-reasoning` | `low` | `low` \| `medium` \| `high` — `examples/stage-2/run_stage2_extraction.sh` uses `high` |
 | One page per entry | `--one-page-per-entry` | off | Stage 2 sweeps: prefer lowest stage-2-gold page, else lowest stage-1 gold snippet, else lowest page number |
 | Pass 1 refresh | `--overwrite` | off | Re-run Pass 1 discovery and Pass 2 for this experiment slot |
@@ -163,7 +163,7 @@ The rendered `<dictionary_languages>` block is appended to the **schema-mode** S
 
 **Reasoning budget:** Higher reasoning helps on dense pages but can **leak chain-of-thought into output** on some models. Validate before large sweeps.
 
-Stage 1 and Stage 2 can use **different models** via `--model` + `--structure-model`.
+Stage 1 and Stage 2 can use **different models** via `--model` plus optional `--stage-1-model`, `--stage-2-pass-1-model`, and `--stage-2-pass-2-model`.
 
 ---
 

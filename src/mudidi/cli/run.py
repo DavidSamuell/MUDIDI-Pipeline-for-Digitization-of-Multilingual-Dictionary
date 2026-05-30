@@ -8,6 +8,7 @@ from typing import Sequence
 
 from mudidi.config.run_config import stage_from_cli
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
+from mudidi.cli.model_args import forward_model_argv, register_model_arguments
 from mudidi.utils.pdf_split import parse_page_spec
 
 
@@ -114,6 +115,7 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         dest="prompts_file",
         help="Path to PROMPT.json (default: bundled assets).",
     )
+    register_model_arguments(parser)
 
 
 def _validate_pdf_page_args(run_args: argparse.Namespace) -> None:
@@ -216,6 +218,7 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.extend(["--parse-rules-file", run_args.parse_rules_file])
     if run_args.prompts_file:
         argv.extend(["--prompts-file", run_args.prompts_file])
+    forward_model_argv(argv, run_args)
     argv.extend(_merge_extract_args(run_args, remaining))
 
     old_argv = sys.argv
