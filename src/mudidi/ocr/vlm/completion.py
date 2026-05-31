@@ -32,10 +32,10 @@ def paddle_page_has_content(page_dir: Path, *, stem: str) -> bool:
     candidates = [page_dir / f"{stem}_res.json", *sorted(page_dir.glob("*_res.json"))]
     seen: set[Path] = set()
     for path in candidates:
-        resolved = path.resolve()
-        if resolved in seen:
+        absolute = path.resolve()
+        if absolute in seen:
             continue
-        seen.add(resolved)
+        seen.add(absolute)
         if paddle_res_json_has_blocks(path):
             return True
     return False

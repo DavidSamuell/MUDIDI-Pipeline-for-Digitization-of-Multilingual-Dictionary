@@ -93,7 +93,7 @@ def _openrouter_max_tokens_cap() -> Optional[int]:
         return None
 
 
-def _resolve_api_key(model: str) -> Optional[str]:
+def api_key_for_model(model: str) -> Optional[str]:
     """Resolve the API key for a given model string based on provider prefix."""
     model_lower = model.lower()
     if "openrouter" in model_lower:
@@ -377,7 +377,7 @@ def _build_params(
     top_p: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Assemble the litellm.completion kwargs, applying model-family-specific rules."""
-    api_key = _resolve_api_key(model)
+    api_key = api_key_for_model(model)
     if not api_key:
         print(f"Warning: No API key found for model '{model}'. Relying on environment variables.")
 

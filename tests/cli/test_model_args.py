@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from mudidi.cli.model_args import DEFAULT_MODEL, resolve_stage_models
+from mudidi.cli.model_args import DEFAULT_MODEL, stage_models_from_args
 
 
 def _args(**kwargs: object) -> argparse.Namespace:
@@ -20,14 +20,14 @@ def _args(**kwargs: object) -> argparse.Namespace:
 
 
 def test_model_sets_all_steps() -> None:
-    models = resolve_stage_models(_args(model="provider/all"))
+    models = stage_models_from_args(_args(model="provider/all"))
     assert models.stage_1 == "provider/all"
     assert models.stage_2_pass_1 == "provider/all"
     assert models.stage_2_pass_2 == "provider/all"
 
 
 def test_per_step_overrides() -> None:
-    models = resolve_stage_models(
+    models = stage_models_from_args(
         _args(
             model="provider/default",
             stage_1_model="provider/s1",
@@ -41,7 +41,7 @@ def test_per_step_overrides() -> None:
 
 
 def test_legacy_structure_model_fills_stage_2() -> None:
-    models = resolve_stage_models(
+    models = stage_models_from_args(
         _args(model="provider/default", structure_model="provider/legacy")
     )
     assert models.stage_1 == "provider/default"

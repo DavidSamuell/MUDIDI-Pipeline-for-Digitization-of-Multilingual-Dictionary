@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 PaddleVlBackend = Literal["native", "vllm-server"]
 
 
-def resolve_paddle_vl_backend(explicit: str | None = None) -> PaddleVlBackend:
+def paddle_vl_backend(explicit: str | None = None) -> PaddleVlBackend:
     """Return Paddle VL recognition backend."""
     if explicit in ("native", "vllm-server"):
         return explicit
@@ -26,7 +26,7 @@ def resolve_paddle_vl_backend(explicit: str | None = None) -> PaddleVlBackend:
     return "native"
 
 
-def resolve_paddle_vl_server_url(explicit: str | None = None) -> str | None:
+def paddle_vl_server_url(explicit: str | None = None) -> str | None:
     """Return Paddle vLLM server URL when using ``vllm-server`` backend."""
     if explicit:
         return explicit
@@ -44,8 +44,8 @@ class PaddleVlOcr:
         vl_rec_server_url: str | None = None,
     ) -> None:
         self.spec = spec
-        self.vl_rec_backend = resolve_paddle_vl_backend(vl_rec_backend)
-        self.vl_rec_server_url = resolve_paddle_vl_server_url(vl_rec_server_url)
+        self.vl_rec_backend = paddle_vl_backend(vl_rec_backend)
+        self.vl_rec_server_url = paddle_vl_server_url(vl_rec_server_url)
         self._pipeline: Any = None
 
     def load(self) -> None:

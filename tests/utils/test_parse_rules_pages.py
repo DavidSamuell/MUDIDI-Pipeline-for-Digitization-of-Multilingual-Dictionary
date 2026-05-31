@@ -9,7 +9,7 @@ import pytest
 from mudidi.utils.parse_rules_pages import (
     format_sample_pages_block,
     normalize_parse_rules_page_stems,
-    resolve_parse_rules_sample_images,
+    select_parse_rules_sample_images,
 )
 
 
@@ -29,19 +29,19 @@ def test_normalize_parse_rules_page_stems(
     assert normalize_parse_rules_page_stems(values) == expected
 
 
-def test_resolve_parse_rules_sample_images_defaults_to_first(tmp_path: Path) -> None:
+def test_select_parse_rules_sample_images_defaults_to_first(tmp_path: Path) -> None:
     images = [tmp_path / "page_10.png", tmp_path / "page_2.png"]
     for path in images:
         path.write_bytes(b"x")
-    resolved = resolve_parse_rules_sample_images(images, [])
-    assert resolved == [images[0]]
+    selected = select_parse_rules_sample_images(images, [])
+    assert selected == [images[0]]
 
 
-def test_resolve_parse_rules_sample_images_missing_stem(tmp_path: Path) -> None:
+def test_select_parse_rules_sample_images_missing_stem(tmp_path: Path) -> None:
     image = tmp_path / "page_1.png"
     image.write_bytes(b"x")
     with pytest.raises(ValueError, match="not found"):
-        resolve_parse_rules_sample_images([image], ["page_99"])
+        select_parse_rules_sample_images([image], ["page_99"])
 
 
 def test_format_sample_pages_block() -> None:

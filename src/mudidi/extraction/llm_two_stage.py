@@ -62,7 +62,7 @@ from mudidi.llm.prompts import (
     stage_1_user,
     format_stage1_page_context_preamble,
 )
-from mudidi.utils.image import image_data_url, resolve_mime_type
+from mudidi.utils.image import image_data_url, mime_type_for_path
 from mudidi.utils.io import read_docx_text
 from mudidi.utils.page_context import PageContext
 
@@ -377,7 +377,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         Call the transcription LLM (Stage 1) with structured output.
         Returns (transcribed_text, raw_json_str, usage_dict, sanitized_messages).
         """
-        mime = resolve_mime_type(image_path)
+        mime = mime_type_for_path(image_path)
         page_data_url = image_data_url(image_path, mime)
 
         alphabet_text, alphabet_image_url = self._load_alphabet()
@@ -566,7 +566,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         suffix = p.suffix.lower()
 
         if suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-            mime = resolve_mime_type(str(p))
+            mime = mime_type_for_path(str(p))
             return "", image_data_url(str(p), mime)
 
         if suffix == ".docx":

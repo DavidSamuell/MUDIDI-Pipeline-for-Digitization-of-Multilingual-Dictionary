@@ -137,6 +137,8 @@ Do **not** pass `--intro` when using a PDF — introduction pages are selected w
 
 Split pages are cached under `{output_dir}/.rendered_snippets/split/` (dictionary) and `{output_dir}/.rendered_intro/split/` (introduction) as `page_{N}.pdf`. Re-runs reuse cached splits unless you pass `--overwrite`.
 
+**Neighbor context (inference only):** Stage 1 and Stage 2 can attach the **previous and next dictionary page** when they exist in the **same run’s page list** — here, only pages listed in `--dict-pages` (in numeric order). Pages outside that spec are never sent as neighbors (e.g. processing `53,77` does not pull page 54 or 76). Introduction pages from `--intro-pages` are separate and are **not** used as neighbor context for dictionary pages.
+
 **pdftk:** required for this workflow — see [pdftk (conditional)](#pdftk-conditional) under Prerequisites.
 
 ### Option B — snippets directory (alternative: smaller jobs, pre-split pages)
@@ -152,6 +154,8 @@ my-dictionary/
 ```
 
 **`snippets/`** — one file per dictionary page. Supported: `.png`, `.jpg`, `.jpeg`, `.webp`, `.pdf`. Pages are processed in numeric order (`page_1`, `page_2`, …, `page_10`).
+
+**Neighbor context (inference only):** Previous/next context uses only files **present in `snippets/`** (sorted by page stem). If you omit `page_54.png`, page 53 has no “next” neighbor in the run even if it exists in the full book scan elsewhere. Files outside `snippets/` are never loaded as neighbors.
 
 **`introduction/`** — front matter for **Stage 2 Pass 1** (parse-rules discovery): abbreviations, entry structure, and which MDF markers the dictionary uses. Pass 2 uses the cached `parse-rules.json`, not the intro images again.
 
@@ -614,7 +618,11 @@ Flat mode asks the model for structured JSON (`header` / `lines` / `footer` list
 
 ### Inference-specific behaviour
 
-- **Neighbor page context** — in inference mode, each page receives previous/next page images (and prior transcripts when available) so the model can handle entries that span page breaks. Output still belongs to the current page only.
+- **Neighbor page context** — only in **inference** mode (not `--benchmark`). For each page, MUDIDI may attach the **previous** and/or **next** page image plus that neighbor’s Stage 1 transcript if it was already produced earlier in the **same** command. Neighbors are drawn only from the run’s input page list:
+  - **Option A (PDF):** pages in `--dict-pages` only (sorted by page number). No context from pages you did not list, and no context from `--intro-pages`.
+  - **Option B (directory):** files in the `--pages` snippets directory only. No context from pages missing from that folder.
+  - First page in the list has no previous neighbor; last has no next. Non-contiguous specs (e.g. `53,77`) mean page 53 has no next and page 77 has no previous **within the run**.
+  - Output still belongs to the **current** page only; neighbors are disambiguation context for hyphenation and cross-page entries.
 - **Stage chaining** — with `--stage all`, Stage 2 reads Stage 1 predictions from `--output-dir` automatically.
 - **Prompts** — inference uses `*_inference` prompt variants in `assets/PROMPT.json` (see [Customising prompts](#customising-prompts)).
 
@@ -790,8 +798,8 @@ USER DEFINED GUIDELINES
 
 **`role: user`** — vision parts after that text (order matters):
 
-1. `[image]` previous page (`page_2.png`) — inference only, if it exists
-2. `[image]` next page — inference only, if it exists
+1. `[image]` previous page (`page_2.png`) — inference only, if listed in `--dict-pages` or present in the snippets directory
+2. `[image]` next page — inference only, under the same scope as above
 3. `[image]` alphabet scan — if an alphabet image file exists
 4. `[image]` **current page** (`page_3.png`) — always
 
@@ -967,8 +975,8 @@ The **`MDF markers for …`** block is not in `PROMPT.json` — it is built at r
 
 **`role: user`** — vision parts after that text:
 
-1. `[image]` previous page — inference only
-2. `[image]` next page — inference only
+1. `[image]` previous page — inference only, if in the run’s page list
+2. `[image]` next page — inference only, if in the run’s page list
 3. `[image]` **current page**
 4. `[image]` Toolbox PDF — only when `--toolbox-pdf` is set and the model reads PDFs (expensive at scale; see [Parse rules vs toolbox PDF](#parse-rules-vs-toolbox-pdf)); otherwise the manual text is inlined via `stage_2_toolbox_text_section` inside the text block above
 
@@ -988,7 +996,7 @@ Introduction images are **not** sent in Pass 2; conventions are captured in the 
 
 ### Benchmark vs inference variants
 
-Some steps use a **base id** plus a mode suffix. [`resolve_prompt_id()`](src/mudidi/llm/prompt_mode.py) picks `base_benchmark` or `base_inference` when both exist; otherwise it falls back to the unsuffixed id.
+Some steps use a **base id** plus a mode suffix. [`prompt_id_for_mode()`](src/mudidi/llm/prompt_mode.py) picks `base_benchmark` or `base_inference` when both exist; otherwise it falls back to the unsuffixed id.
 
 | Base id                     | Suffixed variants          |
 | --------------------------- | -------------------------- |
@@ -1012,7 +1020,7 @@ uv run mudidi run \
   --stage1-mode flat
 ```
 
-The store reloads when the file modification time changes (next LLM call). If you rename prompt ids, update the matching strings in `prompts.py`, `pass_1.py`, and `pass_2.py` (or `resolve_prompt_id` bases).
+The store reloads when the file modification time changes (next LLM call). If you rename prompt ids, update the matching strings in `prompts.py`, `pass_1.py`, and `pass_2.py` (or `prompt_id_for_mode` bases).
 
 ---
 
@@ -1036,7 +1044,7 @@ The sections below are for reproducing the MUDIDI benchmark on the 30-dictionary
 | Purpose       | Digitize your dictionary            | Evaluate models against gold labels    |
 | Inputs        | `--pages`, `--output-dir`           | `--samples-dir` + samples tree layout  |
 | Stage 2 input | Stage 1 predictions                 | Gold transcripts (default)             |
-| Page context  | Previous/next pages                 | Independent pages                      |
+| Page context  | Previous/next **only among pages in this run** (see [Inference-specific behaviour](#inference-specific-behaviour)) | Independent pages (no neighbors) |
 | Output layout | `{output_dir}/stage-1/`, `stage-2/` | `{lang}/outputs/stage-1/{experiment}/` |
 
 ### Benchmark quick start

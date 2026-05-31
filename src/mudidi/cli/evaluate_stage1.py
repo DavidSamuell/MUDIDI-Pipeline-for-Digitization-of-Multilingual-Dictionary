@@ -94,7 +94,7 @@ def list_stage1_experiments(
     return sorted(names)
 
 
-def resolve_flat_and_vlm_ocr_experiments(
+def find_flat_and_vlm_ocr_experiments(
     samples: Path,
     *,
     languages: list[str] | None,
@@ -161,13 +161,13 @@ def filter_results_by_experiment(
     return OrderedDict([(experiment_name, metrics)])
 
 
-def resolve_experiment_names(
+def experiment_names_for_eval(
     args: argparse.Namespace, samples: Path
 ) -> list[str] | None:
     """Resolve which experiment folders to include in batch eval-flat."""
     subdir = getattr(args, "stage1_output_subdir", "stage-1")
     if args.include_vlm_ocr:
-        found = resolve_flat_and_vlm_ocr_experiments(
+        found = find_flat_and_vlm_ocr_experiments(
             samples, languages=args.languages, stage1_output_subdir=subdir
         )
         if args.experiment_names:
@@ -323,7 +323,7 @@ def main() -> int:
     out = Path(args.output_dir) if args.output_dir else samples / "stage1_flat_eval"
     out.mkdir(parents=True, exist_ok=True)
 
-    experiment_names = resolve_experiment_names(args, samples)
+    experiment_names = experiment_names_for_eval(args, samples)
     if experiment_names is not None and not experiment_names:
         return 1
 

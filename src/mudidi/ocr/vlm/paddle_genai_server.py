@@ -22,7 +22,7 @@ HEALTH_POLL_INTERVAL_S = 2.0
 HEALTH_TIMEOUT_S = 600.0
 
 
-def resolve_paddle_genai_server_python(explicit: str | None = None) -> Path:
+def paddle_genai_server_python(explicit: str | None = None) -> Path:
     """Return Python executable for the dedicated Paddle GenAI server venv."""
     if explicit:
         path = Path(explicit)
@@ -52,7 +52,7 @@ def resolve_paddle_genai_server_python(explicit: str | None = None) -> Path:
     )
 
 
-def resolve_paddle_genai_port(explicit: int | None = None) -> int:
+def paddle_genai_port(explicit: int | None = None) -> int:
     """Return TCP port for the local Paddle GenAI server."""
     if explicit is not None and explicit > 0:
         return explicit
@@ -78,7 +78,7 @@ def _health_ok(host: str, port: int, *, timeout: float = 2.0) -> bool:
 def is_paddle_genai_vllm_available(python: Path | None = None) -> bool:
     """Return True when the server venv has the genai-vllm-server plugin."""
     try:
-        exe = python or resolve_paddle_genai_server_python()
+        exe = python or paddle_genai_server_python()
     except FileNotFoundError:
         return False
     cmd = [
@@ -107,8 +107,8 @@ class PaddleGenaiServerManager:
     ) -> None:
         self.model_name = model_name
         self.host = host
-        self.port = resolve_paddle_genai_port(port)
-        self.server_python = server_python or resolve_paddle_genai_server_python()
+        self.port = paddle_genai_port(port)
+        self.server_python = server_python or paddle_genai_server_python()
         self.health_timeout_s = health_timeout_s
         self._proc: subprocess.Popen[Any] | None = None
         self._owned = False
@@ -239,7 +239,7 @@ def ensure_paddle_vllm_server_args(args: Any) -> PaddleGenaiServerManager | None
         return None
 
     manager = PaddleGenaiServerManager(
-        port=resolve_paddle_genai_port(getattr(args, "paddle_vl_server_port", None)),
+        port=paddle_genai_port(getattr(args, "paddle_vl_server_port", None)),
         server_python=(
             Path(args.paddle_vllm_server_python)
             if getattr(args, "paddle_vllm_server_python", None)

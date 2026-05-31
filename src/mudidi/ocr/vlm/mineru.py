@@ -25,7 +25,7 @@ DEFAULT_MINERU_MAX_NEW_TOKENS = 1024
 DEFAULT_MINERU_LAYOUT_MAX_NEW_TOKENS = 4096
 
 
-def resolve_mineru_backend(explicit: str | None = None) -> MineruBackend:
+def mineru_backend(explicit: str | None = None) -> MineruBackend:
     """Return MinerU inference backend (transformers or vllm)."""
     if explicit in ("transformers", "vllm"):
         return explicit
@@ -35,7 +35,7 @@ def resolve_mineru_backend(explicit: str | None = None) -> MineruBackend:
     return "transformers"
 
 
-def resolve_mineru_batch_size(explicit: int | None = None) -> int:
+def mineru_batch_size(explicit: int | None = None) -> int:
     """Return GPU batch size for MinerU block extraction."""
     if explicit is not None and explicit > 0:
         return explicit
@@ -104,8 +104,8 @@ class MineruVlmOcr:
         max_new_tokens: int = DEFAULT_MINERU_MAX_NEW_TOKENS,
     ) -> None:
         self.spec = spec
-        self.backend = resolve_mineru_backend(backend)
-        self.batch_size = resolve_mineru_batch_size(batch_size)
+        self.backend = mineru_backend(backend)
+        self.batch_size = mineru_batch_size(batch_size)
         self.max_new_tokens = max_new_tokens
         self._client: Any = None
         self._json2md: Any = None

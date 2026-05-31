@@ -39,7 +39,7 @@ def iter_entry_folders(samples_dir: Path) -> list[Path]:
     return sorted(p for p in samples_dir.iterdir() if p.is_dir())
 
 
-def resolve_entry_folders(
+def entry_folders_for_samples(
     samples_dir: Path,
     languages: list[str] | None,
 ) -> list[Path]:
@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        entries = resolve_entry_folders(args.samples_dir, args.languages)
+        entries = entry_folders_for_samples(args.samples_dir, args.languages)
     except ValueError as exc:
         logger.error("%s", exc)
         return 1

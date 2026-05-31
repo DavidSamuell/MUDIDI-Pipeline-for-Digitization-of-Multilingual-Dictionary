@@ -29,7 +29,7 @@ class OutputLayout:
         return self.stage2_root / stem
 
 
-def resolve_output_layout(config: RunConfig) -> OutputLayout:
+def output_layout_from_config(config: RunConfig) -> OutputLayout:
     """Return stage output roots for the given run configuration."""
     if config.benchmark:
         stage1_root = stage1_experiment_dir(

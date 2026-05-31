@@ -343,7 +343,7 @@ def load_dictionary_languages_file(path: Path) -> DictionaryLanguagesConfig:
     return DictionaryLanguagesConfig.model_validate(data)
 
 
-def resolve_pass1_dictionary_languages(
+def load_pass1_dictionary_languages(
     *,
     dictionary_languages_path: Path | None,
     entry_dir: Path | None,

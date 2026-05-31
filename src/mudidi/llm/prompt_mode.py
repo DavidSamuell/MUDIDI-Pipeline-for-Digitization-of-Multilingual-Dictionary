@@ -14,7 +14,7 @@ _MODE_SUFFIXED = frozenset(
 )
 
 
-def resolve_prompt_id(base_id: str, mode: PromptMode) -> str:
+def prompt_id_for_mode(base_id: str, mode: PromptMode) -> str:
     """
     Return the prompt id for ``mode``, falling back to ``base_id``.
 

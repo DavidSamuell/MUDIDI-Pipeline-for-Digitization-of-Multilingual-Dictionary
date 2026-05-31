@@ -84,13 +84,13 @@ def default_prompts_path() -> Path:
 def configure_prompts(path: Path | str) -> None:
     """Set the prompts file used by :func:`get_prompt_store`."""
     global _configured_path
-    resolved = Path(path).expanduser().resolve()
-    _configured_path = resolved
-    get_prompt_store().set_path(resolved)
-    logger.info("Prompts file: %s", resolved)
+    prompts_path = Path(path).expanduser().resolve()
+    _configured_path = prompts_path
+    get_prompt_store().set_path(prompts_path)
+    logger.info("Prompts file: %s", prompts_path)
 
 
-def _resolve_prompts_path() -> Path:
+def _prompts_file_path() -> Path:
     if _configured_path is not None:
         return _configured_path
     return default_prompts_path()
@@ -115,7 +115,7 @@ class PromptStore:
     """Cached reader for ``PROMPT.json`` with mtime-based invalidation."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
-        self._path = path or _resolve_prompts_path()
+        self._path = path or _prompts_file_path()
         self._signature: Optional[tuple[float, int]] = None
         self._prompts: Dict[str, PromptDefinition] = {}
 
@@ -184,5 +184,5 @@ def get_prompt_store() -> PromptStore:
     """Return the process-wide prompt store."""
     global _store
     if _store is None:
-        _store = PromptStore(_resolve_prompts_path())
+        _store = PromptStore(_prompts_file_path())
     return _store

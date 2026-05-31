@@ -23,7 +23,7 @@ HEALTH_POLL_INTERVAL_S = 2.0
 HEALTH_TIMEOUT_S = 600.0
 
 
-def resolve_glm_vllm_server_python(explicit: str | None = None) -> Path:
+def glm_vllm_server_python(explicit: str | None = None) -> Path:
     """Return Python executable for the GLM-OCR vLLM server venv."""
     if explicit:
         path = Path(explicit)
@@ -51,7 +51,7 @@ def resolve_glm_vllm_server_python(explicit: str | None = None) -> Path:
     )
 
 
-def resolve_glm_vllm_port(explicit: int | None = None) -> int:
+def glm_vllm_port(explicit: int | None = None) -> int:
     """Return TCP port for the local GLM-OCR vLLM server."""
     if explicit is not None and explicit > 0:
         return explicit
@@ -90,8 +90,8 @@ class GlmVllmServerManager:
         self.model_id = model_id
         self.served_model_name = served_model_name
         self.host = host
-        self.port = resolve_glm_vllm_port(port)
-        self.server_python = server_python or resolve_glm_vllm_server_python()
+        self.port = glm_vllm_port(port)
+        self.server_python = server_python or glm_vllm_server_python()
         self.health_timeout_s = health_timeout_s
         self._proc: subprocess.Popen[Any] | None = None
         self._owned = False
@@ -213,7 +213,7 @@ def ensure_glm_vllm_server_args(args: Any) -> GlmVllmServerManager | None:
         return None
 
     manager = GlmVllmServerManager(
-        port=resolve_glm_vllm_port(getattr(args, "glm_vllm_server_port", None)),
+        port=glm_vllm_port(getattr(args, "glm_vllm_server_port", None)),
         server_python=(
             Path(args.glm_vllm_server_python)
             if getattr(args, "glm_vllm_server_python", None)

@@ -27,11 +27,11 @@ from mudidi.ocr.vlm.registry import get_vlm_spec, list_vlm_keys
 from mudidi.ocr.vlm.runner import create_vlm_runner
 from mudidi.utils.dictionary_languages import (
     config_to_yaml_dict,
-    resolve_pass1_dictionary_languages,
+    load_pass1_dictionary_languages,
 )
 from mudidi.utils.stage2_direct_mdf_io import save_direct_mdf_outputs
 from mudidi.utils.stage1_input import (
-    resolve_stage1_transcript_for_stage2,
+    stage1_transcript_for_stage2,
     stage1_experiment_dir,
     stage1_flat_path,
     stage1_gold_dir,
@@ -41,12 +41,12 @@ from mudidi.utils.stage1_input import (
     stage1_transcript_kind,
 )
 from mudidi.utils.stage2_page_selection import select_one_stage2_page, sort_snippet_pages
-from mudidi.config.output_paths import resolve_output_layout
+from mudidi.config.output_paths import output_layout_from_config
 from mudidi.config.run_config import RunConfig
-from mudidi.utils.page_context import resolve_page_context
+from mudidi.utils.page_context import build_page_context
 from mudidi.utils.parse_rules_pages import (
     normalize_parse_rules_page_stems,
-    resolve_parse_rules_sample_images,
+    select_parse_rules_sample_images,
 )
 from mudidi.cli.model_args import attach_stage_models, register_model_arguments
 from mudidi.utils.pdf_split import extract_pdf_pages, parse_page_spec
@@ -59,7 +59,7 @@ _DEFAULT_METADATA_CSV = (
 )
 
 
-def _resolve_gold_mdf_path(
+def _gold_mdf_path_for_entry(
     output_dir: Path,
     stem: str,
     explicit: Optional[str],
@@ -77,7 +77,7 @@ def _resolve_gold_mdf_path(
     return None
 
 
-def _resolve_entry_dir(
+def _entry_dir_for_run(
     args: argparse.Namespace,
     output_dir: Path,
     input_dir: Path,
@@ -358,13 +358,13 @@ def _per_page_inputs_stage2(
     experiment_name: str = "default",
     stage1_output_subdir: str = "stage-1",
 ) -> List[Dict[str, Any]]:
-    """Resolve per-page stage-1 transcript paths that stage 2 consumes."""
+    """Collect per-page stage-1 transcript paths that stage 2 consumes."""
     rows: List[Dict[str, Any]] = []
     gold_root = stage1_gold_dir(output_dir)
     for image_file in images:
         stem = image_file.stem
         gold_page_dir = gold_root / stem
-        resolved = resolve_stage1_transcript_for_stage2(
+        transcript_path = stage1_transcript_for_stage2(
             output_dir,
             stem,
             preference,  # type: ignore[arg-type]
@@ -376,7 +376,7 @@ def _per_page_inputs_stage2(
             "stem": stem,
             "stage1_gold_tsv_path": str(stage1_gold_tsv_path(gold_page_dir, stem)),
             "stage1_gold_flat_path": str(stage1_gold_flat_path(gold_page_dir, stem)),
-            "stage1_transcript_path": str(resolved) if resolved else None,
+            "stage1_transcript_path": str(transcript_path) if transcript_path else None,
         }
         if source == "predictions":
             pred_page_dir = (
@@ -389,8 +389,8 @@ def _per_page_inputs_stage2(
             row["stage1_prediction_flat_path"] = str(
                 stage1_flat_path(pred_page_dir, stem)
             )
-        if resolved is not None:
-            row["stage1_transcript_kind"] = stage1_transcript_kind(resolved)
+        if transcript_path is not None:
+            row["stage1_transcript_kind"] = stage1_transcript_kind(transcript_path)
         rows.append(row)
     return rows
 
@@ -505,7 +505,7 @@ def _build_stage2_manifest(
         "intro": {
             "used": bool(args.intro),
             "source_path": args.intro,
-            "resolved_image_or_pdf_paths": list(intro_image_paths),
+            "intro_image_or_pdf_paths": list(intro_image_paths),
         },
         "stage2_guides": _guides_manifest_entry(
             getattr(args, "stage2_guides_path", None),
@@ -599,7 +599,7 @@ def _prepare_parse_rules_samples(
 ) -> List[tuple[str, str, str]]:
     """Ensure Stage 1 transcripts exist for Pass 1 sample page(s)."""
     stems = normalize_parse_rules_page_stems(getattr(args, "parse_rules_pages", None))
-    sample_images = resolve_parse_rules_sample_images(images, stems)
+    sample_images = select_parse_rules_sample_images(images, stems)
     samples: List[tuple[str, str, str]] = []
     stage1_mode = getattr(args, "stage1_mode", "column")
 
@@ -623,7 +623,7 @@ def _prepare_parse_rules_samples(
                 run_stage="1",
             )
 
-        transcript_path = resolve_stage1_transcript_for_stage2(
+        transcript_path = stage1_transcript_for_stage2(
             output_dir,
             stem,
             getattr(args, "stage1_input", "auto"),
@@ -1489,7 +1489,7 @@ def _run_single_entry(args, parser) -> int:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_config = RunConfig.from_namespace(args)
-    layout = resolve_output_layout(run_config)
+    layout = output_layout_from_config(run_config)
     stage1_dir = layout.stage1_root
     stage2_dir = layout.stage2_root
     cheatsheet_root = (
@@ -1573,12 +1573,12 @@ def _run_single_entry(args, parser) -> int:
             )
 
     dictionary_languages = None
-    entry_path = _resolve_entry_dir(args, output_dir, input_dir if input_path.is_dir() else input_path.parent)
+    entry_path = _entry_dir_for_run(args, output_dir, input_dir if input_path.is_dir() else input_path.parent)
     if entry_path:
         args.entry_dir = str(entry_path)
     if args.strategy == "two_stage":
         is_benchmark = bool(getattr(args, "benchmark", False) or args.samples_dir)
-        dictionary_languages = resolve_pass1_dictionary_languages(
+        dictionary_languages = load_pass1_dictionary_languages(
             dictionary_languages_path=args.dictionary_languages,
             entry_dir=entry_path,
             metadata_csv_path=_DEFAULT_METADATA_CSV,
@@ -1629,7 +1629,7 @@ def _run_single_entry(args, parser) -> int:
     def _transcript_loader(stem: str) -> str:
         if stem in transcript_cache:
             return transcript_cache[stem]
-        resolved = resolve_stage1_transcript_for_stage2(
+        transcript_path = stage1_transcript_for_stage2(
             output_dir,
             stem,
             getattr(args, "stage1_input", "auto"),
@@ -1638,8 +1638,8 @@ def _run_single_entry(args, parser) -> int:
             stage1_output_subdir=args.stage1_output_subdir,
             inference_layout=layout.inference,
         )
-        if resolved is not None and resolved.is_file():
-            text = read_stage1_transcript_text(resolved)
+        if transcript_path is not None and transcript_path.is_file():
+            text = read_stage1_transcript_text(transcript_path)
             transcript_cache[stem] = text
             return text
         return ""
@@ -1730,7 +1730,7 @@ def _run_single_entry(args, parser) -> int:
         stage1_gold_flat = stage1_gold_flat_path(stage1_gold_page_dir, stem)
         stage1_transcript: Optional[Path] = None
         if args.stage == "2":
-            stage1_transcript = resolve_stage1_transcript_for_stage2(
+            stage1_transcript = stage1_transcript_for_stage2(
                 output_dir,
                 stem,
                 getattr(args, "stage1_input", "auto"),
@@ -1822,7 +1822,7 @@ def _run_single_entry(args, parser) -> int:
             if args.strategy == "two_stage":
                 page_context = None
                 if args.prompt_mode == "inference":
-                    page_context = resolve_page_context(
+                    page_context = build_page_context(
                         images,
                         idx,
                         transcript_loader=_transcript_loader,
@@ -1847,7 +1847,7 @@ def _run_single_entry(args, parser) -> int:
             # Save outputs (skip for stage-1-only since there are no entries)
             if args.stage != "1":
                 if args.strategy == "two_stage":
-                    gold_path = _resolve_gold_mdf_path(
+                    gold_path = _gold_mdf_path_for_entry(
                         output_dir, stem, getattr(args, "compare_gold", None)
                     )
                     result = save_direct_mdf_outputs(

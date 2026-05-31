@@ -95,7 +95,7 @@ class RunConfig(BaseModel):
         )
 
     def apply_to_namespace(self, args: object) -> None:
-        """Copy resolved fields onto an argparse namespace for legacy extract code."""
+        """Copy normalized fields onto an argparse namespace for legacy extract code."""
         setattr(args, "benchmark", self.benchmark)
         setattr(args, "input_image", str(self.pages_dir))
         setattr(args, "output", str(self.output_dir))

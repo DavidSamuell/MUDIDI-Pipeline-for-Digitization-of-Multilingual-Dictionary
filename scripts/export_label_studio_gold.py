@@ -280,7 +280,7 @@ def columns_have_body_lines(columns: dict[str, str]) -> bool:
     return False
 
 
-def resolve_export_columns(
+def export_columns_for_task(
     task: LabelStudioTask,
     *,
     include_prefill: bool,
@@ -360,7 +360,7 @@ def export_language(
     written = 0
 
     for index, task in enumerate(tasks, start=1):
-        columns, source = resolve_export_columns(task, include_prefill=include_prefill)
+        columns, source = export_columns_for_task(task, include_prefill=include_prefill)
         if source == "skip":
             logger.info(
                 "  [%d/%d] task %d (%s) skipped — no submitted text and no prefill",

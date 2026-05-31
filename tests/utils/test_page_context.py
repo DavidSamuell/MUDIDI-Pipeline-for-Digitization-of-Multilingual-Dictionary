@@ -7,11 +7,11 @@ from pathlib import Path
 from mudidi.utils.page_context import (
     format_current_page_block,
     format_page_image_order_note,
-    resolve_page_context,
+    build_page_context,
 )
 
 
-def test_resolve_neighbors_for_sparse_page_list(tmp_path: Path) -> None:
+def test_build_neighbors_for_sparse_page_list(tmp_path: Path) -> None:
     pages = [
         tmp_path / "page_53.pdf",
         tmp_path / "page_54.pdf",
@@ -20,13 +20,13 @@ def test_resolve_neighbors_for_sparse_page_list(tmp_path: Path) -> None:
     for p in pages:
         p.touch()
 
-    ctx_53 = resolve_page_context(pages, 0)
+    ctx_53 = build_page_context(pages, 0)
     assert ctx_53.current_stem == "page_53"
     assert ctx_53.previous is None
     assert ctx_53.next is not None
     assert ctx_53.next.stem == "page_54"
 
-    ctx_54 = resolve_page_context(pages, 1)
+    ctx_54 = build_page_context(pages, 1)
     assert ctx_54.previous is not None
     assert ctx_54.previous.stem == "page_53"
     assert ctx_54.next is not None

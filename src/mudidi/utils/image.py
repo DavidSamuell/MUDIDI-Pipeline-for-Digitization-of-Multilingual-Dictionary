@@ -90,7 +90,7 @@ def _read_bytes_for_llm(
     )
 
 
-def resolve_mime_type(image_path: str) -> str:
+def mime_type_for_path(image_path: str) -> str:
     """
     Infer the MIME type from the file extension.
 

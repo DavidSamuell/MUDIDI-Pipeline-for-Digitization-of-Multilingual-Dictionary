@@ -10,7 +10,7 @@ from typing import List, Tuple, Union
 from mudidi.utils.stage1_input import (
     Stage1InputPreference,
     Stage1Source,
-    resolve_stage1_transcript_for_stage2,
+    stage1_transcript_for_stage2,
     stage1_gold_dir,
 )
 
@@ -100,7 +100,7 @@ def select_one_stage2_page(
 
     for image in ordered:
         stem = image.stem
-        if resolve_stage1_transcript_for_stage2(
+        if stage1_transcript_for_stage2(
             output_dir,
             stem,
             stage1_input,

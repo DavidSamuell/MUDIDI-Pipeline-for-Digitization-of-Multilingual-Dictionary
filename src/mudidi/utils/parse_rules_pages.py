@@ -39,7 +39,7 @@ def normalize_parse_rules_page_stems(
     return stems
 
 
-def resolve_parse_rules_sample_images(
+def select_parse_rules_sample_images(
     images: list[Path],
     stems: list[str],
 ) -> list[Path]:

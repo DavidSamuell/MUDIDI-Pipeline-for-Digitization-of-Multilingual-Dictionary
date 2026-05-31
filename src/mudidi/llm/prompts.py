@@ -7,7 +7,7 @@ Templates live in ``assets/PROMPT.json``; this module assembles dynamic user tur
 from __future__ import annotations
 
 from mudidi.config.run_config import PromptMode
-from mudidi.llm.prompt_mode import resolve_prompt_id
+from mudidi.llm.prompt_mode import prompt_id_for_mode
 from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.utils.page_context import (
     PageContext,
@@ -53,7 +53,7 @@ def stage_1_flat_system_prompt(
     """
     del page_context  # neighbors handled in user preamble, not system prompt
     store = get_prompt_store()
-    prompt_id = resolve_prompt_id("stage_1_system", mode)
+    prompt_id = prompt_id_for_mode("stage_1_system", mode)
     return store.get(prompt_id)
 
 
@@ -86,12 +86,12 @@ def stage_1_neighbor_image_urls(page_context: PageContext | None) -> list[str]:
     """Return data URLs for neighbor page images (inference mode)."""
     if page_context is None:
         return []
-    from mudidi.utils.image import image_data_url, resolve_mime_type
+    from mudidi.utils.image import image_data_url, mime_type_for_path
 
     urls: list[str] = []
     for neighbor in (page_context.previous, page_context.next):
         if neighbor is None:
             continue
-        mime = resolve_mime_type(str(neighbor.image_path))
+        mime = mime_type_for_path(str(neighbor.image_path))
         urls.append(image_data_url(str(neighbor.image_path), mime))
     return urls

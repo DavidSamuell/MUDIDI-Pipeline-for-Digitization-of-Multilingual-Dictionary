@@ -18,13 +18,13 @@ from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.paths import LEGACY_PARSE_RULES_FILENAME, PARSE_RULES_FILENAME
 from mudidi.schemas.dictionary_languages import DictionaryLanguagesConfig
 from mudidi.schemas.field_cheatsheet import DictionaryMarkerCheatsheet
-from mudidi.utils.image import image_data_url, resolve_mime_type
+from mudidi.utils.image import image_data_url, mime_type_for_path
 from mudidi.utils.parse_rules_pages import format_sample_pages_block
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_parse_rules_read_path(directory: Path) -> Path:
+def find_parse_rules_path(directory: Path) -> Path:
     """Return an existing parse-rules file (new name, then legacy benchmark gold name)."""
     new_path = directory / PARSE_RULES_FILENAME
     if new_path.is_file():
@@ -84,7 +84,7 @@ def discover_field_cheatsheet(
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": image_data_url(str(intro_img), resolve_mime_type(str(intro_img)))
+                    "url": image_data_url(str(intro_img), mime_type_for_path(str(intro_img)))
                 },
             }
         )
@@ -92,7 +92,7 @@ def discover_field_cheatsheet(
         {
             "type": "image_url",
             "image_url": {
-                "url": image_data_url(str(sample_image), resolve_mime_type(str(sample_image)))
+                "url": image_data_url(str(sample_image), mime_type_for_path(str(sample_image)))
             },
         }
     )
@@ -136,7 +136,7 @@ def discover_field_cheatsheet_multi(
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": image_data_url(str(intro_img), resolve_mime_type(str(intro_img)))
+                    "url": image_data_url(str(intro_img), mime_type_for_path(str(intro_img)))
                 },
             }
         )
@@ -147,7 +147,7 @@ def discover_field_cheatsheet_multi(
                 "image_url": {
                     "url": image_data_url(
                         str(sample_image),
-                        resolve_mime_type(str(sample_image)),
+                        mime_type_for_path(str(sample_image)),
                     ),
                 },
             }
@@ -181,7 +181,7 @@ def load_parse_rules_file(path: Path) -> DictionaryMarkerCheatsheet:
 def gold_parse_rules_path(entry_dir: Path) -> Path:
     """Resolve human-authored parse rules under ``outputs/stage-2-gold/``."""
     gold_dir = entry_dir / "outputs" / "stage-2-gold"
-    return resolve_parse_rules_read_path(gold_dir)
+    return find_parse_rules_path(gold_dir)
 
 
 def gold_cheatsheet_path(entry_dir: Path) -> Path:
@@ -215,7 +215,7 @@ def load_or_discover_parse_rules(
     **discover_kwargs,
 ) -> DictionaryMarkerCheatsheet:
     """Load cached parse rules, a user file, or run Pass 1 discovery."""
-    read_path = resolve_parse_rules_read_path(cache_path.parent)
+    read_path = find_parse_rules_path(cache_path.parent)
     if read_path.is_file() and not force_refresh and parse_rules_file is None:
         logger.info("Loading cached parse rules: %s", read_path)
         return DictionaryMarkerCheatsheet.model_validate_json(

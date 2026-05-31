@@ -41,7 +41,7 @@ def _empty_loader(_stem: str) -> str:
     return ""
 
 
-def resolve_page_context(
+def build_page_context(
     pages: list[Path],
     index: int,
     *,

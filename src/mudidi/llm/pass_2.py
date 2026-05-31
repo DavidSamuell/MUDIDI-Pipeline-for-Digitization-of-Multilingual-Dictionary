@@ -13,10 +13,10 @@ from typing import List, Optional
 
 from mudidi.config.run_config import PromptMode
 from mudidi.llm import client as llm
-from mudidi.llm.prompt_mode import resolve_prompt_id
+from mudidi.llm.prompt_mode import prompt_id_for_mode
 from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.schemas.field_map import FieldMapPrompt
-from mudidi.utils.image import image_data_url, resolve_mime_type
+from mudidi.utils.image import image_data_url, mime_type_for_path
 from mudidi.utils.mdf_export import normalize_mdf_text
 from mudidi.llm.prompts import (
     format_current_page_block,
@@ -39,7 +39,7 @@ def direct_mdf_system_prompt(
 ) -> str:
     """Pass 2 direct MDF system prompt."""
     store = get_prompt_store()
-    prompt_id = resolve_prompt_id("stage_2_direct_mdf_system", mode)
+    prompt_id = prompt_id_for_mode("stage_2_direct_mdf_system", mode)
     if mode == "inference":
         return store.format(
             prompt_id,
@@ -132,7 +132,7 @@ def build_direct_mdf_messages(
             toolbox_pdf,
             model=model,
         )
-    user_prompt_id = resolve_prompt_id("stage_2_direct_mdf_user", mode)
+    user_prompt_id = prompt_id_for_mode("stage_2_direct_mdf_user", mode)
     user_text = get_prompt_store().format(
         user_prompt_id,
         transcription=transcription.strip(),
@@ -141,13 +141,13 @@ def build_direct_mdf_messages(
         toolbox_section=toolbox_section,
         **_neighbor_format_kwargs(mode, page_context),
     )
-    mime = resolve_mime_type(image_path)
+    mime = mime_type_for_path(image_path)
     content: list[dict] = [{"type": "text", "text": user_text}]
     if mode == "inference" and page_context is not None:
         for neighbor in (page_context.previous, page_context.next):
             if neighbor is None:
                 continue
-            n_mime = resolve_mime_type(str(neighbor.image_path))
+            n_mime = mime_type_for_path(str(neighbor.image_path))
             content.append(
                 {
                     "type": "image_url",

@@ -45,14 +45,14 @@ def stage1_experiment_dir(
 
 
 def stage1_transcript_kind(path: Path) -> Stage1InputPreference:
-    """Return ``column`` or ``flat`` from the resolved file name."""
+    """Return ``column`` or ``flat`` from the transcript file name."""
     name = path.name
     if name.endswith("_stage1_flat.txt") or name.endswith("_stage1_GOLD_flat.txt"):
         return "flat"
     return "column"
 
 
-def _resolve_transcript_in_dir(
+def _transcript_path_in_dir(
     page_dir: Path,
     stem: str,
     preference: Stage1InputPreference,
@@ -71,7 +71,7 @@ def _resolve_transcript_in_dir(
     return None
 
 
-def resolve_stage1_transcript_path(
+def stage1_transcript_path(
     page_dir: Path,
     stem: str,
     preference: Stage1InputPreference = "auto",
@@ -88,7 +88,7 @@ def resolve_stage1_transcript_path(
     Returns:
         Resolved path, or ``None`` if nothing matches the preference.
     """
-    return _resolve_transcript_in_dir(
+    return _transcript_path_in_dir(
         page_dir,
         stem,
         preference,
@@ -97,7 +97,7 @@ def resolve_stage1_transcript_path(
     )
 
 
-def resolve_stage1_gold_transcript_path(
+def stage1_gold_transcript_path(
     gold_page_dir: Path,
     stem: str,
     preference: Stage1InputPreference = "auto",
@@ -110,7 +110,7 @@ def resolve_stage1_gold_transcript_path(
         stem: Page stem (e.g. ``page_3``).
         preference: ``auto`` prefers column TSV, then flat gold.
     """
-    return _resolve_transcript_in_dir(
+    return _transcript_path_in_dir(
         gold_page_dir,
         stem,
         preference,
@@ -119,7 +119,7 @@ def resolve_stage1_gold_transcript_path(
     )
 
 
-def resolve_stage1_transcript_for_stage2(
+def stage1_transcript_for_stage2(
     output_dir: Path,
     stem: str,
     preference: Stage1InputPreference = "auto",
@@ -142,18 +142,18 @@ def resolve_stage1_transcript_for_stage2(
         inference_layout: When True, predictions live at ``{output_dir}/stage-1/{stem}/``.
     """
     if source == "gold":
-        return resolve_stage1_gold_transcript_path(
+        return stage1_gold_transcript_path(
             stage1_gold_dir(output_dir) / stem,
             stem,
             preference,
         )
     if inference_layout:
-        return resolve_stage1_transcript_path(
+        return stage1_transcript_path(
             output_dir / "stage-1" / stem,
             stem,
             preference,
         )
-    return resolve_stage1_transcript_path(
+    return stage1_transcript_path(
         stage1_experiment_dir(
             output_dir, experiment_name, subdir=stage1_output_subdir
         )

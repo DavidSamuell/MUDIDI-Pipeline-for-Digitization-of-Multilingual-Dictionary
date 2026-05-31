@@ -13,7 +13,7 @@ from mudidi.schemas.dictionary_languages import (
 )
 from mudidi.utils.dictionary_languages import (
     load_dictionary_languages_file,
-    resolve_pass1_dictionary_languages,
+    load_pass1_dictionary_languages,
 )
 
 _MINIMAL_YAML = """\
@@ -51,49 +51,49 @@ def test_load_dictionary_languages_file_accepts_custom_layout_string(tmp_path: P
     assert config.layout == "bilingual"
 
 
-def test_resolve_pass1_inference_without_flag_returns_none(tmp_path: Path) -> None:
+def test_load_pass1_inference_without_flag_returns_none(tmp_path: Path) -> None:
     entry_dir = tmp_path / "my-dictionary"
     entry_dir.mkdir()
     (entry_dir / "dictionary_languages.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
 
-    resolved = resolve_pass1_dictionary_languages(
+    config = load_pass1_dictionary_languages(
         dictionary_languages_path=None,
         entry_dir=entry_dir,
         metadata_csv_path=None,
         benchmark=False,
     )
-    assert resolved is None
+    assert config is None
 
 
-def test_resolve_pass1_inference_with_explicit_path(tmp_path: Path) -> None:
+def test_load_pass1_inference_with_explicit_path(tmp_path: Path) -> None:
     yaml_path = tmp_path / "inputs" / "dictionary_languages.yaml"
     yaml_path.parent.mkdir(parents=True)
     yaml_path.write_text(_MINIMAL_YAML, encoding="utf-8")
 
-    resolved = resolve_pass1_dictionary_languages(
+    config = load_pass1_dictionary_languages(
         dictionary_languages_path=yaml_path,
         entry_dir=None,
         metadata_csv_path=None,
         benchmark=False,
     )
-    assert isinstance(resolved, DictionaryLanguagesConfig)
-    assert resolved.layout == "inline_bilingual"
-    assert resolved.source.language == "Evenki"
+    assert isinstance(config, DictionaryLanguagesConfig)
+    assert config.layout == "inline_bilingual"
+    assert config.source.language == "Evenki"
 
 
-def test_resolve_pass1_benchmark_auto_loads_entry_yaml(tmp_path: Path) -> None:
+def test_load_pass1_benchmark_auto_loads_entry_yaml(tmp_path: Path) -> None:
     entry_dir = tmp_path / "Evenki-Russian"
     entry_dir.mkdir()
     (entry_dir / "dictionary_languages.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
 
-    resolved = resolve_pass1_dictionary_languages(
+    config = load_pass1_dictionary_languages(
         dictionary_languages_path=None,
         entry_dir=entry_dir,
         metadata_csv_path=None,
         benchmark=True,
     )
-    assert resolved is not None
-    assert resolved.source.language == "Evenki"
+    assert config is not None
+    assert config.source.language == "Evenki"
 
 
 def test_pass1_config_hint_empty_when_no_config() -> None:

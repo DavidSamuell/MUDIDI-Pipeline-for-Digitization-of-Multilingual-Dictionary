@@ -64,7 +64,7 @@ def register_model_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def resolve_stage_models(args: argparse.Namespace) -> StageModels:
+def stage_models_from_args(args: argparse.Namespace) -> StageModels:
     """Resolve final model ids from CLI args."""
     default = args.model
     legacy = getattr(args, "structure_model", None)
@@ -88,7 +88,7 @@ def resolve_stage_models(args: argparse.Namespace) -> StageModels:
 
 def attach_stage_models(args: argparse.Namespace) -> StageModels:
     """Resolve models and store on ``args.stage_models``."""
-    models = resolve_stage_models(args)
+    models = stage_models_from_args(args)
     args.stage_models = models
     return models
 
