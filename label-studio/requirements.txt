@@ -1,0 +1,6 @@
+# Label Studio stack — install in a separate venv from the main MUDIDI project.
+# Conflicts with litellm>=1.87 (openai 1.x vs 2.x). Example:
+#   uv venv .venv-label-studio
+#   uv pip install -r label-studio/requirements.txt --python .venv-label-studio/bin/python
+label-studio>=1.23.0
+requests>=2.28.0

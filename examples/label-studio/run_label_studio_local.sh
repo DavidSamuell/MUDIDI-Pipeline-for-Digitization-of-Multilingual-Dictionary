@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Start local Label Studio, then create/update projects.
+# Prerequisite: separate venv — see label-studio/requirements.txt and docs/uv.md
 
 set -euo pipefail
 

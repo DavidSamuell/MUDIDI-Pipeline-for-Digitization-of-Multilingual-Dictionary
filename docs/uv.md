@@ -7,6 +7,12 @@ This project is managed entirely with [`uv`](https://docs.astral.sh/uv/). Do not
 ```bash
 uv sync                    # creates .venv and installs all dependencies pinned in uv.lock
 uv sync --extra paddle     # additionally install PaddleOCR / paddlepaddle (optional)
+Label Studio (separate venv — openai 1.x, incompatible with main `litellm>=1.87` lock):
+
+```bash
+uv venv .venv-label-studio
+uv pip install -r label-studio/requirements.txt --python .venv-label-studio/bin/python
+```
 ```
 
 ## Specialised VLM venvs

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Prerequisite: separate venv — see label-studio/requirements.txt and docs/uv.md
 # Populate the remote Label Studio instance on the supervisor's VM.
 #
 # Prerequisites:
