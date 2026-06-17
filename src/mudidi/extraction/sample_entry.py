@@ -21,7 +21,7 @@ def stage1_context_inputs_apply(args: Any) -> bool:
     if strategy in ("vlm_ocr",):
         return True
     if strategy == "two_stage":
-        return getattr(args, "stage", "both") in ("1", "both")
+        return getattr(args, "stage", "all") in ("1", "all")
     return False
 
 

@@ -53,3 +53,25 @@ def test_run_config_apply_to_namespace_sets_prompt_cache_options() -> None:
     assert args.prompt_cache == "auto"
     assert args.media_reference == "file-uri"
     assert args.prompt_cache_key == "dictionary-cache"
+
+
+def test_run_config_inference_2_pass_1_respects_gold_stage1_source() -> None:
+    config = RunConfig(
+        pages_dir="pages",
+        output_dir="out",
+        stage="2-pass-1",
+        stage1_source="gold",
+    )
+
+    assert config.stage1_source == "gold"
+
+
+def test_run_config_inference_stage2_switches_gold_to_predictions() -> None:
+    config = RunConfig(
+        pages_dir="pages",
+        output_dir="out",
+        stage="2-pass-2",
+        stage1_source="gold",
+    )
+
+    assert config.stage1_source == "predictions"
