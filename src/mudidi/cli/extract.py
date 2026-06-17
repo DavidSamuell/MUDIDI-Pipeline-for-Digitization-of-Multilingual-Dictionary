@@ -7,6 +7,9 @@ import argparse
 import json
 import re
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,6 +48,7 @@ from mudidi.config.output_paths import output_layout_from_config
 from mudidi.config.run_config import (
     EXTRACT_STAGE_CHOICES,
     RunConfig,
+    page_run_phases,
     runs_stage1,
     runs_stage2_any,
     runs_stage2_pass1,
@@ -58,6 +62,7 @@ from mudidi.utils.parse_rules_pages import (
 from mudidi.cli.model_args import attach_stage_models, register_model_arguments
 from mudidi.utils.pdf_split import extract_pdf_pages, parse_page_spec
 from mudidi.utils.stage1_input import read_stage1_transcript_text
+from mudidi.llm.client import is_retryable_transient_error, wait_for_provider_backoff
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
 
 _DEFAULT_METADATA_CSV = (
@@ -442,6 +447,7 @@ def _build_stage1_manifest(
         "model": args.stage_models.stage_1,
         "reasoning_effort": args.stage1_reasoning_effort,
         "temperature": args.temperature,
+        "batch_size": getattr(args, "batch_size", 1),
         "render_pdfs": run_needs_pdf_rasterization(
             args.stage_models.stage_1,
             args.stage_models.stage_2_pass_1,
@@ -485,6 +491,7 @@ def _build_stage2_manifest(
         "stage_2_pass_2_model": args.stage_models.stage_2_pass_2,
         "reasoning_effort": args.stage2_reasoning_effort,
         "temperature": args.temperature,
+        "batch_size": getattr(args, "batch_size", 1),
         "stage2_output_format": "mdf",
         "prompts_file": str(
             getattr(args, "prompts_file", None) or default_prompts_path()
@@ -630,7 +637,7 @@ def _prepare_parse_rules_samples(
             stage1_dir, stem, stage1_mode=stage1_mode
         )
 
-        if args.stage == "both" and (args.overwrite or not stage1_out.is_file()):
+        if args.stage == "all" and (args.overwrite or not stage1_out.is_file()):
             print(f"Pass 1 prep: Stage 1 transcription for sample page {stem} …")
             stage1_page_dir = stage1_dir / stem
             stage1_page_dir.mkdir(parents=True, exist_ok=True)
@@ -945,6 +952,16 @@ Examples:
         "Stage 1 prompts and structured output schema (plain text transcripts).",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        dest="batch_size",
+        help="Concurrent page workers for two_stage LLM steps (default: 1). "
+        "Uses a local thread pool — litellm.completion is one request per call; "
+        "there is no litellm batch-size flag on completion(). Values >1 during "
+        "Stage 1 may leave neighbor transcripts empty until those pages finish.",
+    )
+    parser.add_argument(
         "--stage-2-guides",
         dest="stage2_guides_path",
         help="Path to a .txt/.md/.docx file of extra rules appended verbatim to "
@@ -1039,16 +1056,16 @@ Examples:
     parser.add_argument(
         "--stage",
         choices=list(EXTRACT_STAGE_CHOICES),
-        default="both",
-        help="Run only stage 1, full stage 2 (Pass 1 + Pass 2), both stages, "
+        default="all",
+        help="Run only stage 1, full stage 2 (Pass 1 + Pass 2), all stages, "
         "Stage 2 Pass 1 only (2-pass-1), or Stage 2 Pass 2 only (2-pass-2; "
-        "requires existing parse-rules.json). Default: both.",
+        "requires existing parse-rules.json). Default: all.",
     )
     parser.add_argument(
         "--stage1-mode",
         choices=["column", "flat"],
         default="column",
-        help="Stage-1 *write* format for two_stage when running stage 1 or both: "
+        help="Stage-1 *write* format for two_stage when running stage 1 or all: "
         "column TSV (default) or flat text (eval-flat).",
     )
     parser.add_argument(
@@ -1175,7 +1192,7 @@ Examples:
         "(TSV if present, else flat). With --stage1-source gold reads "
         "outputs/stage-1-gold/; with predictions reads "
         "outputs/stage-1/<experiment-name>/. Ignored for stage-1-only runs.",
-    )
+    )  
     parser.add_argument(
         "--stage1-source",
         choices=["gold", "predictions"],
@@ -1197,7 +1214,11 @@ Examples:
     args.prompt_mode = "benchmark" if is_benchmark else "inference"
     if is_benchmark and getattr(args, "no_stage1_typography", False):
         print("Note: --no-stage1-typography ignored in benchmark mode")
-    if not is_benchmark and runs_stage2_any(args.stage) and args.stage1_source == "gold":
+    if (
+        not is_benchmark
+        and args.stage in ("2", "all", "2-pass-2")
+        and args.stage1_source == "gold"
+    ):
         args.stage1_source = "predictions"
 
     if args.stage in ("2-pass-1", "2-pass-2") and args.strategy != "two_stage":
@@ -1216,6 +1237,9 @@ Examples:
 
     if args.stage1_mode == "flat" and args.strategy not in ("two_stage",):
         parser.error("--stage1-mode flat requires --strategy two_stage")
+
+    if getattr(args, "batch_size", 1) < 1:
+        parser.error("--batch-size must be >= 1")
 
     if getattr(args, "toolbox_pdf", None):
         if args.strategy != "two_stage":
@@ -1716,10 +1740,12 @@ def _run_single_entry(args, parser) -> int:
         return 0
 
     transcript_cache: dict[str, str] = {}
+    cache_lock = threading.Lock()
 
     def _transcript_loader(stem: str) -> str:
-        if stem in transcript_cache:
-            return transcript_cache[stem]
+        with cache_lock:
+            if stem in transcript_cache:
+                return transcript_cache[stem]
         transcript_path = stage1_transcript_for_stage2(
             output_dir,
             stem,
@@ -1731,13 +1757,12 @@ def _run_single_entry(args, parser) -> int:
         )
         if transcript_path is not None and transcript_path.is_file():
             text = read_stage1_transcript_text(transcript_path)
-            transcript_cache[stem] = text
+            with cache_lock:
+                transcript_cache[stem] = text
             return text
         return ""
 
-    if args.prompt_mode == "inference" and runs_stage2_pass2(args.stage):
-        for image_file in images:
-            _transcript_loader(image_file.stem)
+    run_phases = page_run_phases(args.stage)
 
     # ── Batch loop ─────────────────────────────────────────────────────────────
     total = len(images)
@@ -1777,7 +1802,7 @@ def _run_single_entry(args, parser) -> int:
                     )
             pass_label = {
                 "2": "Pass 1 + Pass 2",
-                "both": "Pass 1 + Pass 2",
+                "all": "Pass 1 + Pass 2",
                 "2-pass-2": "Pass 2 only",
             }.get(args.stage, args.stage)
             print(
@@ -1816,170 +1841,237 @@ def _run_single_entry(args, parser) -> int:
             )
     print("=" * 60)
 
-    for idx, image_file in enumerate(images):
-        page_number = args.page_offset + idx
-        stem = image_file.stem
-        stage1_page_dir = stage1_dir / stem
-        stage2_page_dir = stage2_dir / stem
-        stage1_tsv = stage1_tsv_path(stage1_page_dir, stem)
-        stage1_flat = stage1_flat_path(stage1_page_dir, stem)
-        stage1_gold_page_dir = stage1_gold_dir(output_dir) / stem
-        stage1_gold_tsv = stage1_gold_tsv_path(stage1_gold_page_dir, stem)
-        stage1_gold_flat = stage1_gold_flat_path(stage1_gold_page_dir, stem)
-        stage1_transcript: Optional[Path] = None
-        if args.stage in ("2", "2-pass-2"):
-            stage1_transcript = stage1_transcript_for_stage2(
-                output_dir,
-                stem,
-                getattr(args, "stage1_input", "auto"),
-                source=getattr(args, "stage1_source", "gold"),
-                experiment_name=args.experiment_name,
-                stage1_output_subdir=args.stage1_output_subdir,
-                inference_layout=layout.inference,
+    for phase_index, page_run_stage in enumerate(run_phases):
+        if len(run_phases) > 1:
+            phase_label = "Stage 1 transcription" if page_run_stage == "1" else "Stage 2 MDF"
+            print(
+                f"\n{'=' * 60}\n"
+                f"Phase {phase_index + 1}/{len(run_phases)}: {phase_label} "
+                f"({total} page(s))\n"
+                f"{'=' * 60}"
             )
-        if runs_stage1(args.stage):
-            stage1_done = (
-                stage1_flat
-                if getattr(args, "stage1_mode", "column") == "flat"
-                else stage1_tsv
+        if (
+            page_run_stage in ("2", "2-pass-2")
+            and args.prompt_mode == "inference"
+        ):
+            for image_file in images:
+                _transcript_loader(image_file.stem)
+
+        batch_size = max(1, int(getattr(args, "batch_size", 1) or 1))
+        use_concurrent = batch_size > 1 and args.strategy == "two_stage"
+        if batch_size > 1 and page_run_stage == "1":
+            print(
+                "Note: --batch-size > 1 during Stage 1 may leave neighbor "
+                "transcripts empty until those pages finish."
             )
-        else:
-            stage1_done = stage1_transcript
-        out_tsv = stage2_page_dir / (stem + ".tsv")
-        out_mdf = stage2_page_dir / (stem + ".mdf.txt")
-        stage2_done = out_mdf
+        if use_concurrent:
+            print(f"Concurrent workers (--batch-size): {batch_size}")
 
-        # ── Resume: skip already-processed pages ──────────────────────────────
-        if not args.overwrite:
-            if args.stage == "both" and stage2_done.exists():
-                print(
-                    f"[{idx+1}/{total}] SKIP {image_file.name} → stage-2/{stem}/ already exists"
-                )
-                skipped += 1
-                continue
-            if args.stage == "1" and stage1_done.exists():
-                print(
-                    f"[{idx+1}/{total}] SKIP {image_file.name} → stage1 already exists"
-                )
-                skipped += 1
-                continue
-            if args.stage in ("2", "2-pass-2") and stage2_done.exists():
-                print(
-                    f"[{idx+1}/{total}] SKIP {image_file.name} → stage2 already exists"
-                )
-                skipped += 1
-                continue
+        print_lock = threading.Lock()
 
-        if args.stage in ("2", "2-pass-2") and stage1_transcript is None:
-            source = getattr(args, "stage1_source", "gold")
-            if source == "gold":
-                print(
-                    f"[{idx + 1}/{total}] SKIP {image_file.name} → no stage-1 gold transcript "
-                    f"(preference={args.stage1_input}; looked for {stage1_gold_tsv.name} "
-                    f"and {stage1_gold_flat.name})"
+        def _locked_print(*msg: object, **kwargs: object) -> None:
+            with print_lock:
+                print(*msg, **kwargs)
+
+        def _run_page(idx: int, image_file: Path) -> str:
+            page_number = args.page_offset + idx
+            stem = image_file.stem
+            stage1_page_dir = stage1_dir / stem
+            stage2_page_dir = stage2_dir / stem
+            stage1_tsv = stage1_tsv_path(stage1_page_dir, stem)
+            stage1_flat = stage1_flat_path(stage1_page_dir, stem)
+            stage1_gold_page_dir = stage1_gold_dir(output_dir) / stem
+            stage1_gold_tsv = stage1_gold_tsv_path(stage1_gold_page_dir, stem)
+            stage1_gold_flat = stage1_gold_flat_path(stage1_gold_page_dir, stem)
+            stage1_transcript: Optional[Path] = None
+            if page_run_stage in ("2", "2-pass-2"):
+                stage1_transcript = stage1_transcript_for_stage2(
+                    output_dir,
+                    stem,
+                    getattr(args, "stage1_input", "auto"),
+                    source=getattr(args, "stage1_source", "gold"),
+                    experiment_name=args.experiment_name,
+                    stage1_output_subdir=args.stage1_output_subdir,
+                    inference_layout=layout.inference,
+                )
+            if page_run_stage == "1" or runs_stage1(page_run_stage):
+                stage1_done = (
+                    stage1_flat
+                    if getattr(args, "stage1_mode", "column") == "flat"
+                    else stage1_tsv
                 )
             else:
-                pred_flat = stage1_flat_path(
-                    stage1_experiment_dir(
-                        output_dir,
-                        args.experiment_name,
-                        subdir=args.stage1_output_subdir,
+                stage1_done = stage1_transcript
+            out_tsv = stage2_page_dir / (stem + ".tsv")
+            stage2_done = stage2_page_dir / (stem + ".mdf.txt")
+
+            if not args.overwrite:
+                if page_run_stage == "1" and stage1_done.exists():
+                    _locked_print(
+                        f"[{idx+1}/{total}] SKIP {image_file.name} → stage1 already exists"
                     )
-                    / stem,
-                    stem,
-                )
-                print(
-                    f"[{idx + 1}/{total}] SKIP {image_file.name} → no stage-1 prediction "
-                    f"transcript in {args.experiment_name} "
-                    f"(preference={args.stage1_input}; looked for {pred_flat.name})"
-                )
-            skipped += 1
-            continue
-
-        print(
-            f"\n[{idx+1}/{total}] Processing: {image_file.name}  (page {page_number})"
-        )
-        if runs_stage1(args.stage):
-            stage1_page_dir.mkdir(parents=True, exist_ok=True)
-        if runs_stage2_pass2(args.stage):
-            stage2_page_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            # Preprocessing
-            image_path = str(image_file)
-
-            # OCR hint
-            ocr_file = _find_ocr_file(ocr_dir, image_file.stem) if ocr_dir else None
-            if ocr_dir and not ocr_file:
-                print(f"  Note: no OCR hint found for {image_file.stem} in {ocr_dir}")
-            ocr_result = _build_ocr_result(image_path, ocr_file)
-
-            # Extract
-            extract_kwargs = {}
-            if args.strategy == "two_stage":
-                page_context = None
-                if args.prompt_mode == "inference":
-                    page_context = build_page_context(
-                        images,
-                        idx,
-                        transcript_loader=_transcript_loader,
+                    return "skipped"
+                if page_run_stage in ("2", "2-pass-2") and stage2_done.exists():
+                    _locked_print(
+                        f"[{idx+1}/{total}] SKIP {image_file.name} → stage2 already exists"
                     )
-                if args.stage in ("2", "2-pass-2"):
-                    extract_kwargs["stage1_output_path"] = str(stage1_transcript)
+                    return "skipped"
+
+            if page_run_stage in ("2", "2-pass-2") and stage1_transcript is None:
+                source = getattr(args, "stage1_source", "gold")
+                if source == "gold":
+                    _locked_print(
+                        f"[{idx + 1}/{total}] SKIP {image_file.name} → no stage-1 gold transcript "
+                        f"(preference={args.stage1_input}; looked for {stage1_gold_tsv.name} "
+                        f"and {stage1_gold_flat.name})"
+                    )
                 else:
-                    extract_kwargs["stage1_output_path"] = str(stage1_done)
-                if runs_stage2_pass2(args.stage):
-                    extract_kwargs["stage2_output_path"] = str(out_tsv)
-                extract_kwargs["run_stage"] = args.stage
-                if page_context is not None:
-                    extract_kwargs["page_context"] = page_context
-
-            page = strategy.extract(
-                ocr_result,
-                image_path,
-                page_number=page_number,
-                **extract_kwargs,
-            )
-
-            # Save outputs (skip for stage-1-only since there are no entries)
-            if runs_stage2_pass2(args.stage):
-                if args.strategy == "two_stage":
-                    gold_path = _gold_mdf_path_for_entry(
-                        output_dir, stem, getattr(args, "compare_gold", None)
-                    )
-                    result = save_direct_mdf_outputs(
-                        mdf_text=page.mdf_text,
-                        output_base=out_tsv,
-                        gold_path=gold_path,
-                    )
-                    if gold_path:
-                        ok = result.get("gold_compare_ok", False)
-                        report = result.get("gold_compare")
-                        print(
-                            f"  → MDF saved to stage-2/{stem}/{stem}.mdf.txt "
-                            f"(gold compare {'ok' if ok else 'DIFFERS'}: {report})"
+                    pred_flat = stage1_flat_path(
+                        stage1_experiment_dir(
+                            output_dir,
+                            args.experiment_name,
+                            subdir=args.stage1_output_subdir,
                         )
+                        / stem,
+                        stem,
+                    )
+                    _locked_print(
+                        f"[{idx + 1}/{total}] SKIP {image_file.name} → no stage-1 prediction "
+                        f"transcript in {args.experiment_name} "
+                        f"(preference={args.stage1_input}; looked for {pred_flat.name})"
+                    )
+                return "skipped"
+
+            phase_tag = f" [stage {page_run_stage}]" if len(run_phases) > 1 else ""
+            _locked_print(
+                f"\n[{idx+1}/{total}] Processing: {image_file.name}  "
+                f"(page {page_number}){phase_tag}"
+            )
+            if runs_stage1(page_run_stage):
+                stage1_page_dir.mkdir(parents=True, exist_ok=True)
+            if runs_stage2_pass2(page_run_stage):
+                stage2_page_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                started = time.perf_counter()
+                image_path = str(image_file)
+
+                ocr_file = _find_ocr_file(ocr_dir, image_file.stem) if ocr_dir else None
+                if ocr_dir and not ocr_file:
+                    _locked_print(
+                        f"  Note: no OCR hint found for {image_file.stem} in {ocr_dir}"
+                    )
+                ocr_result = _build_ocr_result(image_path, ocr_file)
+
+                extract_kwargs: dict[str, object] = {}
+                if args.strategy == "two_stage":
+                    page_context = None
+                    if args.prompt_mode == "inference":
+                        page_context = build_page_context(
+                            images,
+                            idx,
+                            transcript_loader=_transcript_loader,
+                        )
+                    if page_run_stage in ("2", "2-pass-2"):
+                        extract_kwargs["stage1_output_path"] = str(stage1_transcript)
                     else:
-                        print(f"  → MDF saved to stage-2/{stem}/{stem}.mdf.txt")
+                        extract_kwargs["stage1_output_path"] = str(stage1_done)
+                    if runs_stage2_pass2(page_run_stage):
+                        extract_kwargs["stage2_output_path"] = str(out_tsv)
+                    extract_kwargs["run_stage"] = page_run_stage
+                    if page_context is not None:
+                        extract_kwargs["page_context"] = page_context
 
-            processed += 1
-            if runs_stage1(args.stage) and args.strategy == "two_stage":
-                if stem not in transcript_cache:
-                    if getattr(args, "stage1_mode", "column") == "flat":
-                        flat_out = stage1_flat_path(stage1_page_dir, stem)
-                        if flat_out.is_file():
-                            transcript_cache[stem] = read_stage1_transcript_text(flat_out)
-                    else:
-                        tsv_out = stage1_tsv_path(stage1_page_dir, stem)
-                        if tsv_out.is_file():
-                            transcript_cache[stem] = read_stage1_transcript_text(tsv_out)
+                page = None
+                max_page_attempts = 3
+                for page_attempt in range(max_page_attempts):
+                    try:
+                        if page_attempt > 0:
+                            wait_for_provider_backoff()
+                            _locked_print(
+                                f"  Retrying {stem} after transient error "
+                                f"(attempt {page_attempt + 1}/{max_page_attempts}) …"
+                            )
+                        page = strategy.extract(
+                            ocr_result,
+                            image_path,
+                            page_number=page_number,
+                            **extract_kwargs,
+                        )
+                        break
+                    except Exception as exc:
+                        if (
+                            page_attempt >= max_page_attempts - 1
+                            or not is_retryable_transient_error(exc)
+                        ):
+                            raise
+                assert page is not None
 
-        except Exception as exc:
-            print(f"  ERROR processing {image_file.name}: {exc}")
-            import traceback
+                if runs_stage2_pass2(page_run_stage):
+                    if args.strategy == "two_stage":
+                        gold_path = _gold_mdf_path_for_entry(
+                            output_dir, stem, getattr(args, "compare_gold", None)
+                        )
+                        result = save_direct_mdf_outputs(
+                            mdf_text=page.mdf_text,
+                            output_base=out_tsv,
+                            gold_path=gold_path,
+                        )
+                        if gold_path:
+                            ok = result.get("gold_compare_ok", False)
+                            report = result.get("gold_compare")
+                            _locked_print(
+                                f"  → MDF saved to stage-2/{stem}/{stem}.mdf.txt "
+                                f"(gold compare {'ok' if ok else 'DIFFERS'}: {report})"
+                            )
+                        else:
+                            _locked_print(
+                                f"  → MDF saved to stage-2/{stem}/{stem}.mdf.txt"
+                            )
 
-            traceback.print_exc()
-            failed += 1
+                if runs_stage1(page_run_stage) and args.strategy == "two_stage":
+                    with cache_lock:
+                        if stem not in transcript_cache:
+                            if getattr(args, "stage1_mode", "column") == "flat":
+                                flat_out = stage1_flat_path(stage1_page_dir, stem)
+                                if flat_out.is_file():
+                                    transcript_cache[stem] = read_stage1_transcript_text(
+                                        flat_out
+                                    )
+                            else:
+                                tsv_out = stage1_tsv_path(stage1_page_dir, stem)
+                                if tsv_out.is_file():
+                                    transcript_cache[stem] = read_stage1_transcript_text(
+                                        tsv_out
+                                    )
+
+                elapsed = time.perf_counter() - started
+                _locked_print(
+                    f"  → Finished {stem} [stage {page_run_stage}] in {elapsed:.1f}s"
+                )
+                return "processed"
+
+            except Exception as exc:
+                _locked_print(f"  ERROR processing {image_file.name}: {exc}")
+                import traceback
+
+                with print_lock:
+                    traceback.print_exc()
+                return "failed"
+
+        if use_concurrent:
+            with ThreadPoolExecutor(max_workers=batch_size) as pool:
+                outcomes = list(pool.map(_run_page, range(len(images)), images))
+        else:
+            outcomes = [_run_page(idx, image_file) for idx, image_file in enumerate(images)]
+
+        for outcome in outcomes:
+            if outcome == "processed":
+                processed += 1
+            elif outcome == "skipped":
+                skipped += 1
+            elif outcome == "failed":
+                failed += 1
 
     # ── Summary ────────────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -1998,7 +2090,9 @@ def _write_run_usage(output_dir: Path) -> None:
 
     pages = []
     total_cost = 0.0
+    total_elapsed = 0.0
     cost_available = False
+    elapsed_available = False
 
     for usage_file in sorted(output_dir.rglob("*_usage.json")):
         data = json.loads(usage_file.read_text(encoding="utf-8"))
@@ -2006,19 +2100,29 @@ def _write_run_usage(output_dir: Path) -> None:
         if page_cost is not None:
             total_cost += page_cost
             cost_available = True
+        page_elapsed = data.get("total_elapsed_seconds")
+        if page_elapsed is not None:
+            total_elapsed += page_elapsed
+            elapsed_available = True
         pages.append({"page": usage_file.parent.name, **data})
 
     run_summary = {
         "pages": pages,
         "run_total_cost_usd": round(total_cost, 8) if cost_available else None,
+        "run_total_elapsed_seconds": round(total_elapsed, 3) if elapsed_available else None,
     }
 
     out = output_dir / "run_usage.json"
     out.write_text(
         json.dumps(run_summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    cost_str = f"  Total estimated cost: ${total_cost:.4f}" if cost_available else ""
-    print(f"Run usage saved → {out}{cost_str}")
+    summary_parts: list[str] = []
+    if cost_available:
+        summary_parts.append(f"Total estimated cost: ${total_cost:.4f}")
+    if elapsed_available:
+        summary_parts.append(f"Total LLM time: {total_elapsed:.1f}s")
+    summary_str = f"  {' | '.join(summary_parts)}" if summary_parts else ""
+    print(f"Run usage saved → {out}{summary_str}")
 
 
 if __name__ == "__main__":

@@ -152,6 +152,14 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "Stage 1 prompts and structured output schema (plain text transcripts).",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        dest="batch_size",
+        help="Concurrent page workers for two_stage LLM steps (default: 1). "
+        "Thread pool over litellm.completion calls (no litellm batch API flag).",
+    )
+    parser.add_argument(
         "--prompts-file",
         type=str,
         default=None,
@@ -250,8 +258,8 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.extend(["--alphabet", run_args.alphabet])
     if run_args.ocr_text:
         argv.extend(["--ocr-text", run_args.ocr_text])
-    internal_stage = stage_from_cli(run_args.stage)
-    argv.extend(["--stage", internal_stage])
+    stage = stage_from_cli(run_args.stage)
+    argv.extend(["--stage", stage])
     if run_args.stage1_source:
         argv.extend(["--stage1-source", run_args.stage1_source])
     if run_args.parse_rules_pages:
@@ -267,6 +275,8 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.extend(["--prompt-cache-key", run_args.prompt_cache_key])
     if run_args.no_stage1_typography:
         argv.append("--no-stage1-typography")
+    if getattr(run_args, "batch_size", 1) != 1:
+        argv.extend(["--batch-size", str(run_args.batch_size)])
     if run_args.prompts_file:
         argv.extend(["--prompts-file", run_args.prompts_file])
     forward_model_argv(argv, run_args)

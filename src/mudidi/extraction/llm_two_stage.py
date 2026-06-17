@@ -33,6 +33,8 @@ Stage 2 emits free-form MDF text (Pass 2) after marker discovery (Pass 1).
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 import json
+import threading
+import time
 
 from pydantic import BaseModel
 
@@ -87,14 +89,49 @@ def _sum_costs(c1, c2) -> Optional[float]:
     return round((c1 or 0.0) + (c2 or 0.0), 8)
 
 
-def _print_usage_summary(s1: dict, s2: dict, total: Optional[float]) -> None:
+def _sum_elapsed(*values: Optional[float]) -> Optional[float]:
+    """Sum nullable per-stage elapsed seconds."""
+    present = [v for v in values if v is not None]
+    if not present:
+        return None
+    return round(sum(present), 3)
+
+
+def _with_elapsed(usage: Dict[str, Any], started: float) -> Dict[str, Any]:
+    """Return usage with wall-clock ``elapsed_seconds`` since ``started``."""
+    return {
+        **usage,
+        "elapsed_seconds": round(time.perf_counter() - started, 3),
+    }
+
+
+def _print_usage_summary(
+    s1: dict,
+    s2: dict,
+    total: Optional[float],
+    *,
+    total_elapsed: Optional[float] = None,
+) -> None:
     print("\n  ── Usage ──────────────────────────────────────────")
-    for label, u in [("Stage 1", s1), ("Stage 2", s2)]:
+    stages: list[tuple[str, dict]] = []
+    if s1:
+        stages.append(("Stage 1", s1))
+    if s2:
+        stages.append(("Stage 2", s2))
+    for label, u in stages:
         img = f"  img={u.get('image_tokens')}" if u.get("image_tokens") else ""
         cost = f"  ${u.get('cost_usd'):.6f}" if u.get("cost_usd") is not None else ""
-        print(f"  {label}: {u.get('total_tokens')} tokens{img}{cost}")
+        elapsed = ""
+        if u.get("elapsed_seconds") is not None:
+            elapsed = f"  {u['elapsed_seconds']:.1f}s"
+        print(f"  {label}: {u.get('total_tokens')} tokens{img}{cost}{elapsed}")
+    footer: list[str] = []
     if total is not None:
-        print(f"  Page total: ${total:.6f}")
+        footer.append(f"${total:.6f}")
+    if total_elapsed is not None:
+        footer.append(f"{total_elapsed:.1f}s")
+    if footer:
+        print(f"  Page total: {'  '.join(footer)}")
     print()
 
 
@@ -240,6 +277,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         self.media_reference = media_reference
         self.prompt_cache_key = prompt_cache_key
         self.stage1_typography = stage1_typography
+        self._field_map_lock = threading.Lock()
         self._field_map: Optional[FieldMapPrompt] = None
 
     @property
@@ -257,7 +295,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         page_number: int = 1,
         stage1_output_path: Optional[str] = None,
         stage2_output_path: Optional[str] = None,
-        run_stage: str = "both",
+        run_stage: str = "all",
         page_context: PageContext | None = None,
         **kwargs,
     ) -> DictionaryPage:
@@ -279,7 +317,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                                  stem. If omitted, Stage 2 artifacts fall back to
                                  living next to ``stage1_output_path`` (legacy layout).
             run_stage:           "1" = stage 1 only, "2" = stage 2 (Pass 1 + Pass 2),
-                                 "both" = full pipeline, "2-pass-1" = Pass 1 only,
+                                 "all" = full pipeline, "2-pass-1" = Pass 1 only,
                                  "2-pass-2" = Pass 2 only (requires cached parse rules).
                                  Stage-2-only reads transcription from stage1_output_path.
         """
@@ -290,12 +328,14 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         discovery_usage: Dict[str, Any] = {}
 
         # ── Stage 1: transcription ─────────────────────────────────────────────
-        if run_stage in ("1", "both"):
+        if run_stage in ("1", "all"):
             print("=" * 60)
             print("Stage 1: Transcribing page image …")
+            stage1_started = time.perf_counter()
             transcribed_text, stage1_raw, stage1_usage, stage1_msgs = (
                 self._stage1_transcribe(ocr_result, image_path, page_context=page_context)
             )
+            stage1_usage = _with_elapsed(stage1_usage, stage1_started)
             print(
                 f"Transcription ({len(transcribed_text)} chars):\n{transcribed_text[:500]}…\n"
             )
@@ -326,7 +366,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
         # ── Stage 2: direct MDF ────────────────────────────────────────────────
         stage2_base: Optional[Path] = None
-        if run_stage in ("2", "both", "2-pass-2"):
+        if run_stage in ("2", "all", "2-pass-2"):
             # Resolve where Stage 2 artifacts live:
             #   - explicit stage2_output_path → use it (its stem becomes the artifact prefix).
             #   - else fall back to stage1 dir with the "_stage1" suffix stripped (legacy).
@@ -343,12 +383,14 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             field_map = self._ensure_field_map(
                 transcribed_text, image_path, run_stage=run_stage
             )
+            stage2_started = time.perf_counter()
             mdf_text, stage2_raw, stage2_usage, stage2_msgs = self._stage2_direct_mdf(
                 transcribed_text,
                 image_path,
                 field_map,
                 page_context=page_context,
             )
+            stage2_usage = _with_elapsed(stage2_usage, stage2_started)
             print(f"Direct MDF ({len(mdf_text)} chars).")
 
             if stage2_base:
@@ -364,7 +406,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
         # ── Per-page usage summary ────────────────────────────────────────────
         usage_path: Optional[Path] = None
-        if run_stage in ("2", "both", "2-pass-2") and stage2_base:
+        if run_stage in ("2", "all", "2-pass-2") and stage2_base:
             usage_path = stage2_base.with_name(stage2_base.stem + "_usage.json")
         elif run_stage == "1" and stage1_output_path:
             s1 = Path(stage1_output_path)
@@ -376,19 +418,29 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                 _sum_costs(stage1_usage.get("cost_usd"), stage2_usage.get("cost_usd")),
                 discovery_usage.get("cost_usd"),
             )
+            total_elapsed = _sum_elapsed(
+                stage1_usage.get("elapsed_seconds") if stage1_usage else None,
+                stage2_usage.get("elapsed_seconds") if stage2_usage else None,
+            )
             page_usage = {
                 "stage1": stage1_usage or None,
                 "field_discovery": discovery_usage or None,
                 "stage2": stage2_usage or None,
                 "total_cost_usd": total_cost,
+                "total_elapsed_seconds": total_elapsed,
             }
             usage_path.parent.mkdir(parents=True, exist_ok=True)
             usage_path.write_text(
                 json.dumps(page_usage, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-            if stage1_usage and stage2_usage:
-                _print_usage_summary(stage1_usage, stage2_usage, total_cost)
+            if stage1_usage or stage2_usage:
+                _print_usage_summary(
+                    stage1_usage or {},
+                    stage2_usage or {},
+                    total_cost,
+                    total_elapsed=total_elapsed,
+                )
 
         return DictionaryPage(
             entries=entries,
@@ -505,100 +557,104 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         if self._field_map is not None:
             return self._field_map
 
-        if not self.stage2_experiment_dir:
-            raise ValueError(
-                "Stage 2 requires stage2_experiment_dir for field map cache."
-            )
+        with self._field_map_lock:
+            if self._field_map is not None:
+                return self._field_map
 
-        cache_path = self.stage2_experiment_dir / PARSE_RULES_FILENAME
-        if self.parse_rules_gold:
-            if self.entry_dir is None:
+            if not self.stage2_experiment_dir:
                 raise ValueError(
-                    "parse_rules_gold requires entry_dir to locate outputs/stage-2-gold/"
+                    "Stage 2 requires stage2_experiment_dir for field map cache."
                 )
-            print(
-                "Pass 1: using gold parse rules "
-                f"(outputs/stage-2-gold/{PARSE_RULES_FILENAME}) …"
-            )
-            self._field_map = load_gold_parse_rules(self.entry_dir)
-            if self.overwrite or not cache_path.is_file():
+
+            cache_path = self.stage2_experiment_dir / PARSE_RULES_FILENAME
+            if self.parse_rules_gold:
+                if self.entry_dir is None:
+                    raise ValueError(
+                        "parse_rules_gold requires entry_dir to locate outputs/stage-2-gold/"
+                    )
+                print(
+                    "Pass 1: using gold parse rules "
+                    f"(outputs/stage-2-gold/{PARSE_RULES_FILENAME}) …"
+                )
+                self._field_map = load_gold_parse_rules(self.entry_dir)
+                if self.overwrite or not cache_path.is_file():
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(
+                        json.dumps(self._field_map.model_dump(), ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+            elif self.parse_rules_file:
+                print(f"Pass 1: loading parse rules file → {self.parse_rules_file}")
+                self._field_map = load_parse_rules_file(self.parse_rules_file)
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_path.write_text(
                     json.dumps(self._field_map.model_dump(), ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
-        elif self.parse_rules_file:
-            print(f"Pass 1: loading parse rules file → {self.parse_rules_file}")
-            self._field_map = load_parse_rules_file(self.parse_rules_file)
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(self._field_map.model_dump(), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        elif run_stage == "2-pass-2":
-            read_path = find_parse_rules_path(cache_path.parent)
-            if not read_path.is_file():
-                raise FileNotFoundError(
-                    f"Stage 2 Pass 2 requires existing parse rules at {cache_path}. "
-                    "Run with --stage 2-pass-1 first, or pass --parse-rules-file."
-                )
-            print(f"Pass 1: using cached parse rules → {read_path}")
-            self._field_map = DictionaryMarkerCheatsheet.model_validate_json(
-                read_path.read_text(encoding="utf-8")
-            )
-        else:
-            intro_paths = [Path(p) for p in self.intro_image_paths]
-            dictionary_name = self.entry_dir.name if self.entry_dir else ""
-            if not self.parse_rules_samples:
-                raise ValueError(
-                    "Pass 1 parse-rules discovery requires configured sample page(s)."
-                )
-
-            if len(self.parse_rules_samples) == 1:
-                stem, sample_text, sample_image = self.parse_rules_samples[0]
-                discover_kwargs = dict(
-                    transcription=sample_text,
-                    sample_image=Path(sample_image),
-                    intro_images=intro_paths,
-                    model=self.stage2_pass1_model,
-                    reasoning_effort=self.stage2_reasoning_effort,
-                    temperature=self.temperature,
-                    languages_config=self.dictionary_languages,
-                    dictionary_name=dictionary_name,
-                )
-                multi_samples = None
-                print(
-                    f"Pass 1: parse rules discovery from sample {stem} (cache → {cache_path}) …"
+            elif run_stage == "2-pass-2":
+                read_path = find_parse_rules_path(cache_path.parent)
+                if not read_path.is_file():
+                    raise FileNotFoundError(
+                        f"Stage 2 Pass 2 requires existing parse rules at {cache_path}. "
+                        "Run with --stage 2-pass-1 first, or pass --parse-rules-file."
+                    )
+                print(f"Pass 1: using cached parse rules → {read_path}")
+                self._field_map = DictionaryMarkerCheatsheet.model_validate_json(
+                    read_path.read_text(encoding="utf-8")
                 )
             else:
-                discover_kwargs = dict(
-                    intro_images=intro_paths,
-                    model=self.stage2_pass1_model,
-                    reasoning_effort=self.stage2_reasoning_effort,
-                    temperature=self.temperature,
-                    languages_config=self.dictionary_languages,
-                    dictionary_name=dictionary_name,
-                )
-                multi_samples = [
-                    (stem, sample_text, Path(sample_image))
-                    for stem, sample_text, sample_image in self.parse_rules_samples
-                ]
-                sample_list = ", ".join(stem for stem, _, _ in multi_samples)
-                print(
-                    "Pass 1: multi-sample parse rules discovery "
-                    f"from [{sample_list}] (cache → {cache_path}) …"
+                intro_paths = [Path(p) for p in self.intro_image_paths]
+                dictionary_name = self.entry_dir.name if self.entry_dir else ""
+                if not self.parse_rules_samples:
+                    raise ValueError(
+                        "Pass 1 parse-rules discovery requires configured sample page(s)."
+                    )
+
+                if len(self.parse_rules_samples) == 1:
+                    stem, sample_text, sample_image = self.parse_rules_samples[0]
+                    discover_kwargs = dict(
+                        transcription=sample_text,
+                        sample_image=Path(sample_image),
+                        intro_images=intro_paths,
+                        model=self.stage2_pass1_model,
+                        reasoning_effort=self.stage2_reasoning_effort,
+                        temperature=self.temperature,
+                        languages_config=self.dictionary_languages,
+                        dictionary_name=dictionary_name,
+                    )
+                    multi_samples = None
+                    print(
+                        f"Pass 1: parse rules discovery from sample {stem} (cache → {cache_path}) …"
+                    )
+                else:
+                    discover_kwargs = dict(
+                        intro_images=intro_paths,
+                        model=self.stage2_pass1_model,
+                        reasoning_effort=self.stage2_reasoning_effort,
+                        temperature=self.temperature,
+                        languages_config=self.dictionary_languages,
+                        dictionary_name=dictionary_name,
+                    )
+                    multi_samples = [
+                        (stem, sample_text, Path(sample_image))
+                        for stem, sample_text, sample_image in self.parse_rules_samples
+                    ]
+                    sample_list = ", ".join(stem for stem, _, _ in multi_samples)
+                    print(
+                        "Pass 1: multi-sample parse rules discovery "
+                        f"from [{sample_list}] (cache → {cache_path}) …"
+                    )
+
+                self._field_map = load_or_discover_parse_rules(
+                    cache_path,
+                    force_refresh=self.overwrite,
+                    parse_rules_file=None,
+                    multi_samples=multi_samples,
+                    **discover_kwargs,
                 )
 
-            self._field_map = load_or_discover_parse_rules(
-                cache_path,
-                force_refresh=self.overwrite,
-                parse_rules_file=None,
-                multi_samples=multi_samples,
-                **discover_kwargs,
-            )
-
-        print(self._field_map.format_prompt_block())
-        return self._field_map
+            print(self._field_map.format_prompt_block())
+            return self._field_map
 
     def _stage2_direct_mdf(
         self,
