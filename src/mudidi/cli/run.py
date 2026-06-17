@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from mudidi.config.run_config import stage_from_cli
+from mudidi.config.run_config import RUN_STAGE_CHOICES, stage_from_cli
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
 from mudidi.cli.model_args import forward_model_argv, register_model_arguments
 from mudidi.utils.pdf_split import parse_page_spec
@@ -83,9 +83,11 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--stage",
-        choices=["1", "2", "all"],
+        choices=list(RUN_STAGE_CHOICES),
         default="all",
-        help="Run Stage 1 only, Stage 2 only, or both (default: all).",
+        help="Run Stage 1 only, Stage 2 (Pass 1 + Pass 2), both stages (all), "
+        "Stage 2 Pass 1 only (2-pass-1), or Stage 2 Pass 2 only "
+        "(2-pass-2; requires existing parse-rules.json). Default: all.",
     )
     parser.add_argument(
         "--stage1-source",
@@ -117,6 +119,37 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         help="Optional path to dictionary_languages.yaml for Stage 2 Pass 1 "
         "(layout and source/target language hint). Inference: opt-in only. "
         "Benchmark: auto-loads per-entry YAML when omitted.",
+    )
+    parser.add_argument(
+        "--prompt-cache",
+        choices=["auto", "off"],
+        default="auto",
+        dest="prompt_cache",
+        help="Prompt caching mode. auto uses litellm/provider prompt caching when "
+        "supported; off sends uncached prompts (default: auto).",
+    )
+    parser.add_argument(
+        "--media-reference",
+        choices=["auto", "inline", "file-uri"],
+        default="auto",
+        dest="media_reference",
+        help="How to attach reusable media such as toolbox PDFs. auto uses file "
+        "parts/URIs when supported and falls back to inline data; inline always "
+        "uses base64 data; file-uri prefers URI/file parts with inline fallback.",
+    )
+    parser.add_argument(
+        "--prompt-cache-key",
+        default=None,
+        dest="prompt_cache_key",
+        help="Optional stable cache key prefix for providers that accept cache "
+        "routing hints (for example OpenAI prompt_cache_key).",
+    )
+    parser.add_argument(
+        "--no-stage1-typography",
+        action="store_true",
+        dest="no_stage1_typography",
+        help="Inference only: omit bold/italic <b>/<i> markup instructions from "
+        "Stage 1 prompts and structured output schema (plain text transcripts).",
     )
     parser.add_argument(
         "--prompts-file",
@@ -228,6 +261,12 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.extend(["--parse-rules-file", run_args.parse_rules_file])
     if run_args.dictionary_languages:
         argv.extend(["--dictionary-languages", run_args.dictionary_languages])
+    argv.extend(["--prompt-cache", run_args.prompt_cache])
+    argv.extend(["--media-reference", run_args.media_reference])
+    if run_args.prompt_cache_key:
+        argv.extend(["--prompt-cache-key", run_args.prompt_cache_key])
+    if run_args.no_stage1_typography:
+        argv.append("--no-stage1-typography")
     if run_args.prompts_file:
         argv.extend(["--prompts-file", run_args.prompts_file])
     forward_model_argv(argv, run_args)

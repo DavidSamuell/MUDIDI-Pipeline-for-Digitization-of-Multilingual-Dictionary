@@ -5,21 +5,66 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
+
+from mudidi.config.prompt_cache import MediaReferenceMode, PromptCacheMode
 
 PromptMode = Literal["benchmark", "inference"]
-RunStage = Literal["1", "2", "all"]
+RunStage = Literal["1", "2", "all", "2-pass-1", "2-pass-2"]
+InternalStage = Literal["1", "2", "both", "2-pass-1", "2-pass-2"]
 Stage1Source = Literal["gold", "predictions"]
 
+RUN_STAGE_CHOICES: tuple[str, ...] = (
+    "1",
+    "2",
+    "all",
+    "2-pass-1",
+    "2-pass-2",
+)
+EXTRACT_STAGE_CHOICES: tuple[str, ...] = (
+    "1",
+    "2",
+    "both",
+    "2-pass-1",
+    "2-pass-2",
+)
 
-def stage_from_cli(value: str) -> Literal["1", "2", "both"]:
+
+def stage_from_cli(value: str) -> InternalStage:
     """Map CLI ``--stage`` value to internal run stage."""
     normalized = value.strip().lower()
-    if normalized == "all":
-        return "both"
+    aliases: dict[str, InternalStage] = {
+        "all": "both",
+        "2-pass-1": "2-pass-1",
+        "2-pass-2": "2-pass-2",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
     if normalized in ("1", "2", "both"):
         return normalized  # type: ignore[return-value]
-    raise ValueError(f"Invalid stage: {value!r}. Use 1, 2, or all.")
+    raise ValueError(
+        f"Invalid stage: {value!r}. Use 1, 2, all, 2-pass-1, or 2-pass-2."
+    )
+
+
+def runs_stage1(stage: str) -> bool:
+    """True when Stage 1 transcription should run."""
+    return stage in ("1", "both")
+
+
+def runs_stage2_any(stage: str) -> bool:
+    """True when any Stage 2 work (Pass 1 and/or Pass 2) should run."""
+    return stage in ("2", "both", "2-pass-1", "2-pass-2")
+
+
+def runs_stage2_pass1(stage: str) -> bool:
+    """True when Stage 2 Pass 1 parse-rules discovery should run."""
+    return stage in ("2", "both", "2-pass-1")
+
+
+def runs_stage2_pass2(stage: str) -> bool:
+    """True when Stage 2 Pass 2 per-page MDF extraction should run."""
+    return stage in ("2", "both", "2-pass-2")
 
 
 class RunConfig(BaseModel):
@@ -40,6 +85,9 @@ class RunConfig(BaseModel):
     alphabet_path: Path | None = None
     ocr_text_dir: Path | None = None
     parse_rules_page_stem: str | None = None
+    prompt_cache: PromptCacheMode = "auto"
+    media_reference: MediaReferenceMode = "auto"
+    prompt_cache_key: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -49,14 +97,16 @@ class RunConfig(BaseModel):
             object.__setattr__(self, "prompt_mode", "benchmark")
         else:
             object.__setattr__(self, "prompt_mode", "inference")
-            if self.stage in ("2", "all") and self.stage1_source == "gold":
+            if self.stage in ("2", "all", "2-pass-1", "2-pass-2") and (
+                self.stage1_source == "gold"
+            ):
                 object.__setattr__(self, "stage1_source", "predictions")
         if self.stage2_experiment_name is None:
             object.__setattr__(self, "stage2_experiment_name", self.experiment_name)
         return self
 
     @property
-    def internal_stage(self) -> Literal["1", "2", "both"]:
+    def internal_stage(self) -> InternalStage:
         return stage_from_cli(self.stage)
 
     @classmethod
@@ -68,7 +118,7 @@ class RunConfig(BaseModel):
         if not pages or not output:
             raise ValueError("--pages and --output-dir are required.")
         stage_raw = getattr(args, "stage", "all")
-        stage: RunStage = stage_raw if stage_raw in ("1", "2", "all") else "all"
+        stage: RunStage = stage_raw if stage_raw in RUN_STAGE_CHOICES else "all"
         stage1_source = getattr(args, "stage1_source", None)
         if stage1_source is None:
             stage1_source = "gold" if benchmark else "predictions"
@@ -92,6 +142,9 @@ class RunConfig(BaseModel):
             parse_rules_page_stem=getattr(
                 args, "parse_rules_page", getattr(args, "cheatsheet_page", None)
             ),
+            prompt_cache=getattr(args, "prompt_cache", "auto"),
+            media_reference=getattr(args, "media_reference", "auto"),
+            prompt_cache_key=getattr(args, "prompt_cache_key", None),
         )
 
     def apply_to_namespace(self, args: object) -> None:
@@ -102,6 +155,9 @@ class RunConfig(BaseModel):
         setattr(args, "stage", self.internal_stage)
         setattr(args, "stage1_source", self.stage1_source)
         setattr(args, "prompt_mode", self.prompt_mode)
+        setattr(args, "prompt_cache", self.prompt_cache)
+        setattr(args, "media_reference", self.media_reference)
+        setattr(args, "prompt_cache_key", self.prompt_cache_key)
         setattr(args, "experiment_name", self.experiment_name)
         setattr(args, "stage2_experiment_name", self.stage2_experiment_name)
         setattr(args, "stage1_output_subdir", self.stage1_output_subdir)

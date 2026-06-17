@@ -31,18 +31,22 @@ Stage 2 emits free-form MDF text (Pass 2) after marker discovery (Pass 1).
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 import json
+
+from pydantic import BaseModel
 
 from mudidi.evaluation.stage1.flatten import flat_transcription_to_text
 from mudidi.extraction.base import ExtractionStrategy
 from mudidi.llm.pass_1 import (
+    find_parse_rules_path,
     load_gold_parse_rules,
     load_or_discover_parse_rules,
     load_parse_rules_file,
 )
 from mudidi.paths import PARSE_RULES_FILENAME
 from mudidi.llm.pass_2 import extract_direct_mdf
+from mudidi.schemas.field_cheatsheet import DictionaryMarkerCheatsheet
 from mudidi.schemas.field_map import FieldMapPrompt
 from mudidi.utils.stage1_input import read_stage1_transcript_text
 from mudidi.schemas.dictionary_languages import DictionaryLanguagesConfig
@@ -50,7 +54,9 @@ from mudidi.schemas.entry import (
     DictionaryEntry,
     DictionaryPage,
     FlatTranscriptionResponse,
+    FlatTranscriptionResponsePlain,
     TranscriptionResponse,
+    TranscriptionResponsePlain,
 )
 from mudidi.schemas.ocr_result import OCRPageResult
 from mudidi.llm import client as llm
@@ -65,6 +71,13 @@ from mudidi.llm.prompts import (
 from mudidi.utils.image import image_data_url, mime_type_for_path
 from mudidi.utils.io import read_docx_text
 from mudidi.utils.page_context import PageContext
+
+
+def _stage1_response_schema(*, flat: bool, typography: bool) -> Type[BaseModel]:
+    """Return the structured-output schema for Stage 1 transcription."""
+    if flat:
+        return FlatTranscriptionResponse if typography else FlatTranscriptionResponsePlain
+    return TranscriptionResponse if typography else TranscriptionResponsePlain
 
 
 def _sum_costs(c1, c2) -> Optional[float]:
@@ -104,6 +117,14 @@ def _sanitize_messages(messages: list) -> list:
                 if m:
                     b64_len = len(m.group(2))
                     part["image_url"]["url"] = (
+                        f"{m.group(1)}<{b64_len} chars omitted>"
+                    )
+            elif part.get("type") == "file":
+                file_data = part.get("file", {}).get("file_data", "")
+                m = b64_pattern.match(file_data)
+                if m:
+                    b64_len = len(m.group(2))
+                    part["file"]["file_data"] = (
                         f"{m.group(1)}<{b64_len} chars omitted>"
                     )
     return sanitized
@@ -183,6 +204,10 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         parse_rules_file: Optional[str] = None,
         parse_rules_samples: Optional[List[tuple[str, str, str]]] = None,
         prompt_mode: PromptMode = "benchmark",
+        prompt_cache: str = "auto",
+        media_reference: str = "auto",
+        prompt_cache_key: Optional[str] = None,
+        stage1_typography: bool = True,
     ):
         if stage1_mode not in ("column", "flat"):
             raise ValueError(f"stage1_mode must be 'column' or 'flat', got {stage1_mode!r}")
@@ -211,6 +236,10 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         self.parse_rules_file = Path(parse_rules_file) if parse_rules_file else None
         self.parse_rules_samples = parse_rules_samples or []
         self.prompt_mode: PromptMode = prompt_mode
+        self.prompt_cache = prompt_cache
+        self.media_reference = media_reference
+        self.prompt_cache_key = prompt_cache_key
+        self.stage1_typography = stage1_typography
         self._field_map: Optional[FieldMapPrompt] = None
 
     @property
@@ -249,7 +278,9 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                                  raw/input/usage JSONs are derived from this path's
                                  stem. If omitted, Stage 2 artifacts fall back to
                                  living next to ``stage1_output_path`` (legacy layout).
-            run_stage:           "1" = stage 1 only, "2" = stage 2 only, "both" = full pipeline.
+            run_stage:           "1" = stage 1 only, "2" = stage 2 (Pass 1 + Pass 2),
+                                 "both" = full pipeline, "2-pass-1" = Pass 1 only,
+                                 "2-pass-2" = Pass 2 only (requires cached parse rules).
                                  Stage-2-only reads transcription from stage1_output_path.
         """
         stage1_usage: Dict[str, Any] = {}
@@ -281,7 +312,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                     encoding="utf-8",
                 )
                 print(f"Stage 1 saved → {base.name}  |  raw → {raw1_path.name}  |  input → {input1_path.name}")
-        elif run_stage == "2":
+        elif run_stage in ("2", "2-pass-2"):
             if not stage1_output_path or not Path(stage1_output_path).exists():
                 raise FileNotFoundError(
                     f"Stage-2-only requires existing stage 1 transcript: {stage1_output_path}"
@@ -295,7 +326,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
         # ── Stage 2: direct MDF ────────────────────────────────────────────────
         stage2_base: Optional[Path] = None
-        if run_stage in ("2", "both"):
+        if run_stage in ("2", "both", "2-pass-2"):
             # Resolve where Stage 2 artifacts live:
             #   - explicit stage2_output_path → use it (its stem becomes the artifact prefix).
             #   - else fall back to stage1 dir with the "_stage1" suffix stripped (legacy).
@@ -309,7 +340,9 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                 )
 
             print("Stage 2: Direct MDF extraction …")
-            field_map = self._ensure_field_map(transcribed_text, image_path)
+            field_map = self._ensure_field_map(
+                transcribed_text, image_path, run_stage=run_stage
+            )
             mdf_text, stage2_raw, stage2_usage, stage2_msgs = self._stage2_direct_mdf(
                 transcribed_text,
                 image_path,
@@ -331,7 +364,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
         # ── Per-page usage summary ────────────────────────────────────────────
         usage_path: Optional[Path] = None
-        if run_stage in ("2", "both") and stage2_base:
+        if run_stage in ("2", "both", "2-pass-2") and stage2_base:
             usage_path = stage2_base.with_name(stage2_base.stem + "_usage.json")
         elif run_stage == "1" and stage1_output_path:
             s1 = Path(stage1_output_path)
@@ -405,12 +438,17 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         content.append({"type": "image_url", "image_url": {"url": page_data_url}})
 
         if self.stage1_mode == "flat":
+            response_schema = _stage1_response_schema(
+                flat=True,
+                typography=self.stage1_typography,
+            )
             messages = [
                 {
                     "role": "system",
                     "content": stage_1_flat_system_prompt(
                         mode=self.prompt_mode,
                         page_context=page_context,
+                        typography=self.stage1_typography,
                     ),
                 },
                 {"role": "user", "content": content},
@@ -418,7 +456,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             result, raw, usage = llm.complete_structured(
                 model=self.transcribe_model,
                 messages=messages,
-                response_schema=FlatTranscriptionResponse,
+                response_schema=response_schema,
                 temperature=self.temperature,
                 reasoning_effort=self.stage1_reasoning_effort,
             )
@@ -427,24 +465,40 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             )
             return flat_text, raw, usage, _sanitize_messages(messages)
 
+        response_schema = _stage1_response_schema(
+            flat=False,
+            typography=self.stage1_typography,
+        )
         messages = [
-            {"role": "system", "content": stage_1_system_prompt(mode=self.prompt_mode)},
+            {
+                "role": "system",
+                "content": stage_1_system_prompt(
+                    mode=self.prompt_mode,
+                    typography=self.stage1_typography,
+                ),
+            },
             {"role": "user", "content": content},
         ]
 
         result, raw, usage = llm.complete_structured(
             model=self.transcribe_model,
             messages=messages,
-            response_schema=TranscriptionResponse,
+            response_schema=response_schema,
             temperature=self.temperature,
             reasoning_effort=self.stage1_reasoning_effort,
         )
         return _transcription_to_tsv(result), raw, usage, _sanitize_messages(messages)
 
+    def discover_parse_rules(self) -> FieldMapPrompt:
+        """Run Stage 2 Pass 1 only and write ``parse-rules.json``."""
+        return self._ensure_field_map("", "", run_stage="2-pass-1")
+
     def _ensure_field_map(
         self,
         transcribed_text: str,
         image_path: str,
+        *,
+        run_stage: str = "2",
     ) -> FieldMapPrompt:
         """Pass 1: load or discover field map once per dictionary."""
         del transcribed_text, image_path  # discovery uses configured sample page(s)
@@ -480,6 +534,17 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             cache_path.write_text(
                 json.dumps(self._field_map.model_dump(), ensure_ascii=False, indent=2),
                 encoding="utf-8",
+            )
+        elif run_stage == "2-pass-2":
+            read_path = find_parse_rules_path(cache_path.parent)
+            if not read_path.is_file():
+                raise FileNotFoundError(
+                    f"Stage 2 Pass 2 requires existing parse rules at {cache_path}. "
+                    "Run with --stage 2-pass-1 first, or pass --parse-rules-file."
+                )
+            print(f"Pass 1: using cached parse rules → {read_path}")
+            self._field_map = DictionaryMarkerCheatsheet.model_validate_json(
+                read_path.read_text(encoding="utf-8")
             )
         else:
             intro_paths = [Path(p) for p in self.intro_image_paths]
@@ -554,6 +619,9 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             toolbox_pdf=self.stage2_toolbox_pdf,
             mode=self.prompt_mode,
             page_context=page_context,
+            prompt_cache=self.prompt_cache,
+            media_reference=self.media_reference,
+            prompt_cache_key=self.prompt_cache_key,
         )
         return mdf_text, raw, usage, _sanitize_messages(messages)
 

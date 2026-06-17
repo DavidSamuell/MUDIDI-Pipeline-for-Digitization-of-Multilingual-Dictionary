@@ -42,7 +42,14 @@ from mudidi.utils.stage1_input import (
 )
 from mudidi.utils.stage2_page_selection import select_one_stage2_page, sort_snippet_pages
 from mudidi.config.output_paths import output_layout_from_config
-from mudidi.config.run_config import RunConfig
+from mudidi.config.run_config import (
+    EXTRACT_STAGE_CHOICES,
+    RunConfig,
+    runs_stage1,
+    runs_stage2_any,
+    runs_stage2_pass1,
+    runs_stage2_pass2,
+)
 from mudidi.utils.page_context import build_page_context
 from mudidi.utils.parse_rules_pages import (
     normalize_parse_rules_page_stems,
@@ -428,6 +435,8 @@ def _build_stage1_manifest(
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "strategy": args.strategy,
         "stage1_mode": getattr(args, "stage1_mode", "column"),
+        "stage1_typography": args.prompt_mode == "inference"
+        and not getattr(args, "no_stage1_typography", False),
         "flat_spec_version": FLAT_SPEC_VERSION,
         "git_sha": _git_short_sha(),
         "model": args.stage_models.stage_1,
@@ -494,6 +503,9 @@ def _build_stage2_manifest(
             else "discover"
         ),
         "toolbox_pdf": str(args.toolbox_pdf) if getattr(args, "toolbox_pdf", None) else None,
+        "prompt_cache": getattr(args, "prompt_cache", "auto"),
+        "media_reference": getattr(args, "media_reference", "auto"),
+        "prompt_cache_key": getattr(args, "prompt_cache_key", None),
         "stage1_source": {
             "kind": getattr(args, "stage1_source", "gold"),
             "stage1_input_preference": getattr(args, "stage1_input", "auto"),
@@ -573,6 +585,13 @@ def _build_strategy(
             ),
             parse_rules_samples=parse_rules_samples,
             prompt_mode=getattr(args, "prompt_mode", "benchmark"),
+            prompt_cache=getattr(args, "prompt_cache", "auto"),
+            media_reference=getattr(args, "media_reference", "auto"),
+            prompt_cache_key=getattr(args, "prompt_cache_key", None),
+            stage1_typography=(
+                getattr(args, "prompt_mode", "benchmark") == "inference"
+                and not getattr(args, "no_stage1_typography", False)
+            ),
         )
     raise ValueError(f"Unknown strategy: {args.strategy}")
 
@@ -919,6 +938,13 @@ Examples:
         "Optional — leave unset to use the default prompt.",
     )
     parser.add_argument(
+        "--no-stage1-typography",
+        action="store_true",
+        dest="no_stage1_typography",
+        help="Inference only: omit bold/italic <b>/<i> markup instructions from "
+        "Stage 1 prompts and structured output schema (plain text transcripts).",
+    )
+    parser.add_argument(
         "--stage-2-guides",
         dest="stage2_guides_path",
         help="Path to a .txt/.md/.docx file of extra rules appended verbatim to "
@@ -1012,10 +1038,11 @@ Examples:
     )
     parser.add_argument(
         "--stage",
-        choices=["1", "2", "both"],
+        choices=list(EXTRACT_STAGE_CHOICES),
         default="both",
-        help="Run only stage 1, only stage 2, or both (default: both). "
-        "Stage-2-only requires an existing Stage-1 transcript (TSV or flat).",
+        help="Run only stage 1, full stage 2 (Pass 1 + Pass 2), both stages, "
+        "Stage 2 Pass 1 only (2-pass-1), or Stage 2 Pass 2 only (2-pass-2; "
+        "requires existing parse-rules.json). Default: both.",
     )
     parser.add_argument(
         "--stage1-mode",
@@ -1103,6 +1130,30 @@ Examples:
         "uses the built-in marker text reference instead.",
     )
     parser.add_argument(
+        "--prompt-cache",
+        choices=["auto", "off"],
+        default="auto",
+        dest="prompt_cache",
+        help="Prompt caching mode. auto uses litellm/provider prompt caching when "
+        "supported; off sends uncached prompts (default: auto).",
+    )
+    parser.add_argument(
+        "--media-reference",
+        choices=["auto", "inline", "file-uri"],
+        default="auto",
+        dest="media_reference",
+        help="How to attach reusable media such as toolbox PDFs. auto uses file "
+        "parts/URIs when supported and falls back to inline data; inline always "
+        "uses base64 data; file-uri prefers URI/file parts with inline fallback.",
+    )
+    parser.add_argument(
+        "--prompt-cache-key",
+        default=None,
+        dest="prompt_cache_key",
+        help="Optional stable cache key prefix for providers that accept cache "
+        "routing hints (for example OpenAI prompt_cache_key).",
+    )
+    parser.add_argument(
         "--parse-rules-gold",
         action="store_true",
         dest="parse_rules_gold",
@@ -1144,8 +1195,13 @@ Examples:
 
     is_benchmark = bool(getattr(args, "benchmark", False) or args.samples_dir)
     args.prompt_mode = "benchmark" if is_benchmark else "inference"
-    if not is_benchmark and args.stage in ("2", "both") and args.stage1_source == "gold":
+    if is_benchmark and getattr(args, "no_stage1_typography", False):
+        print("Note: --no-stage1-typography ignored in benchmark mode")
+    if not is_benchmark and runs_stage2_any(args.stage) and args.stage1_source == "gold":
         args.stage1_source = "predictions"
+
+    if args.stage in ("2-pass-1", "2-pass-2") and args.strategy != "two_stage":
+        parser.error(f"--stage {args.stage} requires --strategy two_stage")
 
     # ── VLM OCR strategy validation ───────────────────────────────────────────
     if args.strategy == "vlm_ocr":
@@ -1178,7 +1234,7 @@ Examples:
         parser.error("--parse-rules-file cannot be combined with --parse-rules-gold")
 
     if (
-        args.stage == "2"
+        args.stage in ("2", "2-pass-2")
         and getattr(args, "stage1_source", "gold") == "predictions"
         and args.strategy == "two_stage"
         and args.experiment_name == "default"
@@ -1611,11 +1667,11 @@ def _run_single_entry(args, parser) -> int:
         intro_text,
         intro_image_paths,
         dictionary_languages,
-        stage2_experiment_dir=cheatsheet_root if args.stage in ("2", "both") else None,
+        stage2_experiment_dir=cheatsheet_root if runs_stage2_any(args.stage) else None,
     )
     if (
         args.strategy == "two_stage"
-        and args.stage in ("2", "both")
+        and runs_stage2_pass1(args.stage)
         and not getattr(args, "parse_rules_file", None)
         and not (
             getattr(args, "parse_rules_gold", False)
@@ -1637,6 +1693,28 @@ def _run_single_entry(args, parser) -> int:
     elif getattr(args, "parse_rules_file", None):
         print(f"Pass 1: using parse rules file {args.parse_rules_file}")
 
+    if args.stage == "2-pass-1":
+        print("\nStage 2 Pass 1 only: discovering parse rules …")
+        strategy.discover_parse_rules()
+        parse_rules_path = cheatsheet_root / PARSE_RULES_FILENAME
+        print(f"Pass 1 complete → {parse_rules_path}")
+        if args.strategy == "two_stage":
+            _write_run_config(
+                stage2_dir,
+                _build_stage2_manifest(
+                    args,
+                    input_dir,
+                    images,
+                    output_dir,
+                    intro_image_paths,
+                    config_to_yaml_dict(dictionary_languages)
+                    if dictionary_languages
+                    else None,
+                ),
+                force=args.overwrite,
+            )
+        return 0
+
     transcript_cache: dict[str, str] = {}
 
     def _transcript_loader(stem: str) -> str:
@@ -1657,7 +1735,7 @@ def _run_single_entry(args, parser) -> int:
             return text
         return ""
 
-    if args.prompt_mode == "inference" and args.stage in ("2", "both"):
+    if args.prompt_mode == "inference" and runs_stage2_pass2(args.stage):
         for image_file in images:
             _transcript_loader(image_file.stem)
 
@@ -1675,15 +1753,15 @@ def _run_single_entry(args, parser) -> int:
         f"Overwrite: {args.overwrite}"
     )
     if args.strategy == "two_stage":
-        if args.stage in ("1", "both"):
+        if runs_stage1(args.stage):
             print(
                 f"Stage-1 slot: {args.experiment_name} | Alphabet: "
                 f"{'on' if args.alphabet else 'off'} | OCR hint: "
                 f"{'on' if args.ocr_text else 'off'} | "
                 f"Reasoning: {args.stage1_reasoning_effort}"
             )
-        if args.stage in ("2", "both"):
-            if args.stage == "2":
+        if runs_stage2_any(args.stage):
+            if args.stage in ("2", "2-pass-2"):
                 source = getattr(args, "stage1_source", "gold")
                 if source == "gold":
                     print(
@@ -1697,8 +1775,14 @@ def _run_single_entry(args, parser) -> int:
                         f"{stage1_experiment_dir(output_dir, args.experiment_name, subdir=args.stage1_output_subdir)} "
                         f"(preference={args.stage1_input})"
                     )
+            pass_label = {
+                "2": "Pass 1 + Pass 2",
+                "both": "Pass 1 + Pass 2",
+                "2-pass-2": "Pass 2 only",
+            }.get(args.stage, args.stage)
             print(
                 f"Stage-2 slot: {args.stage2_experiment_name} | "
+                f"Stage-2 mode: {pass_label} | "
                 f"Reasoning: {args.stage2_reasoning_effort}"
                 + (
                     f" | Toolbox PDF: {args.toolbox_pdf.name}"
@@ -1709,13 +1793,13 @@ def _run_single_entry(args, parser) -> int:
         # Manifests describe what's on disk in each experiment slot. On
         # resume (slot already populated) the existing manifest wins so it
         # never drifts from the predictions it documents.
-        if args.stage in ("1", "both"):
+        if runs_stage1(args.stage):
             _write_run_config(
                 stage1_dir,
                 _build_stage1_manifest(args, input_dir, images, ocr_dir),
                 force=args.overwrite,
             )
-        if args.stage in ("2", "both"):
+        if runs_stage2_any(args.stage):
             _write_run_config(
                 stage2_dir,
                 _build_stage2_manifest(
@@ -1743,7 +1827,7 @@ def _run_single_entry(args, parser) -> int:
         stage1_gold_tsv = stage1_gold_tsv_path(stage1_gold_page_dir, stem)
         stage1_gold_flat = stage1_gold_flat_path(stage1_gold_page_dir, stem)
         stage1_transcript: Optional[Path] = None
-        if args.stage == "2":
+        if args.stage in ("2", "2-pass-2"):
             stage1_transcript = stage1_transcript_for_stage2(
                 output_dir,
                 stem,
@@ -1753,7 +1837,7 @@ def _run_single_entry(args, parser) -> int:
                 stage1_output_subdir=args.stage1_output_subdir,
                 inference_layout=layout.inference,
             )
-        if args.stage in ("1", "both"):
+        if runs_stage1(args.stage):
             stage1_done = (
                 stage1_flat
                 if getattr(args, "stage1_mode", "column") == "flat"
@@ -1779,15 +1863,14 @@ def _run_single_entry(args, parser) -> int:
                 )
                 skipped += 1
                 continue
-            if args.stage == "2" and stage2_done.exists():
+            if args.stage in ("2", "2-pass-2") and stage2_done.exists():
                 print(
                     f"[{idx+1}/{total}] SKIP {image_file.name} → stage2 already exists"
                 )
                 skipped += 1
                 continue
 
-        # ── Stage-2-only: verify stage 1 transcript exists ───────────────────
-        if args.stage == "2" and stage1_transcript is None:
+        if args.stage in ("2", "2-pass-2") and stage1_transcript is None:
             source = getattr(args, "stage1_source", "gold")
             if source == "gold":
                 print(
@@ -1816,9 +1899,9 @@ def _run_single_entry(args, parser) -> int:
         print(
             f"\n[{idx+1}/{total}] Processing: {image_file.name}  (page {page_number})"
         )
-        if args.stage in ("1", "both"):
+        if runs_stage1(args.stage):
             stage1_page_dir.mkdir(parents=True, exist_ok=True)
-        if args.stage in ("2", "both"):
+        if runs_stage2_pass2(args.stage):
             stage2_page_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -1841,11 +1924,11 @@ def _run_single_entry(args, parser) -> int:
                         idx,
                         transcript_loader=_transcript_loader,
                     )
-                if args.stage == "2":
+                if args.stage in ("2", "2-pass-2"):
                     extract_kwargs["stage1_output_path"] = str(stage1_transcript)
                 else:
                     extract_kwargs["stage1_output_path"] = str(stage1_done)
-                if args.stage in ("2", "both"):
+                if runs_stage2_pass2(args.stage):
                     extract_kwargs["stage2_output_path"] = str(out_tsv)
                 extract_kwargs["run_stage"] = args.stage
                 if page_context is not None:
@@ -1859,7 +1942,7 @@ def _run_single_entry(args, parser) -> int:
             )
 
             # Save outputs (skip for stage-1-only since there are no entries)
-            if args.stage != "1":
+            if runs_stage2_pass2(args.stage):
                 if args.strategy == "two_stage":
                     gold_path = _gold_mdf_path_for_entry(
                         output_dir, stem, getattr(args, "compare_gold", None)
@@ -1880,7 +1963,7 @@ def _run_single_entry(args, parser) -> int:
                         print(f"  → MDF saved to stage-2/{stem}/{stem}.mdf.txt")
 
             processed += 1
-            if args.stage in ("1", "both") and args.strategy == "two_stage":
+            if runs_stage1(args.stage) and args.strategy == "two_stage":
                 if stem not in transcript_cache:
                     if getattr(args, "stage1_mode", "column") == "flat":
                         flat_out = stage1_flat_path(stage1_page_dir, stem)

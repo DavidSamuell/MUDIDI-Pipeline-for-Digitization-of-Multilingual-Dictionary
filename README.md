@@ -505,7 +505,7 @@ uv run mudidi run \
 
 | Flag                                 | Default                 | Description                                                                                                                                                                               |
 | ------------------------------------ | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--stage {1,2,all}`                  | `all`                   | Run transcription only, MDF only, or both                                                                                                                                                 |
+| `--stage {1,2,all,2-pass-1,2-pass-2}` | `all`                   | Run Stage 1 only, Stage 2 (Pass 1 + Pass 2), both, Pass 1 only, or Pass 2 only (needs cached `parse-rules.json`) |
 | `--intro PATH`                       | —                       | Introduction directory or text/image file (snippets-directory mode only)                                                                                                                  |
 | `--intro-pages SPEC`                 | —                       | When `--pages` is a PDF: intro pages from the **same PDF** (same syntax as `--dict-pages`)                                                                                                |
 | `--alphabet PATH`                    | —                       | Alphabet file (`.txt`/`.md`) or image                                                                                                                                                     |
@@ -608,7 +608,11 @@ uv run mudidi run \
 | `--stage2-reasoning {low,medium,high}`      | `low`       | Stage 2 reasoning effort                                                                                                                                                                                                                                                                          |
 | `--temperature`                             | `0.1`       | Sampling temperature for all LLM steps. **GPT-5** models only accept `1.0` — MUDIDI clamps automatically (use `--temperature 1` to avoid the warning).                                                                                                                                              |
 | `--toolbox-pdf PATH`                        | —           | Optional: attach a SIL Toolbox MDF reference PDF during **Stage 2 Pass 2 only**. Full manual: [`assets/Pages from ToolboxReferenceManual.pdf`](assets/Pages%20from%20ToolboxReferenceManual.pdf) (~65 pages). Expensive at scale — see [Parse rules vs toolbox PDF](#parse-rules-vs-toolbox-pdf). |
+| `--prompt-cache {auto,off}`                 | `auto`      | Use litellm/provider prompt caching for cacheable static prompt blocks when supported. Pass `off` to remove cache-control markers.                                                                                                                         |
+| `--media-reference {auto,inline,file-uri}`  | `auto`      | How reusable PDFs are attached. `auto` prefers litellm file parts/remote URI references when supported and falls back safely; `inline` uses base64 payloads; `file-uri` prefers URI/file-style parts with inline fallback for local files.                 |
+| `--prompt-cache-key KEY`                    | —           | Optional stable cache-key prefix for providers with cache routing hints (notably direct OpenAI models).                                                                                                                                                   |
 | `--stage-1-guides PATH`                     | —           | Extra rules appended to Stage 1 prompt                                                                                                                                                                                                                                                            |
+| `--no-stage1-typography`                    | off         | Inference only: plain Stage 1 transcripts without `<b>`/`<i>` markup instructions                                                                                                                                                                                                                 |
 | `--stage-2-guides PATH`                     | —           | Extra rules appended to Stage 2 prompt                                                                                                                                                                                                                                                            |
 | `--overwrite`                               | off         | Re-process pages even if output exists; also **re-runs Pass 1 LLM discovery** when `{output_dir}/parse-rules.json` already exists                                                                                                                                                                 |
 | `--limit N`                                 | —           | Process at most N pages                                                                                                                                                                                                                                                                           |
@@ -695,13 +699,15 @@ Stage 2 Pass 1 writes **`parse-rules.json`** once per dictionary run — a compa
 
 **Choosing Pass 1 samples:** Pick a `--parse-rules-page` stem that represents typical body entries (not front matter). For dictionaries whose layout changes mid-book (appendix, reverse index, botanical names), pass **multiple** samples so Pass 1 can merge conventions in one shot, then review `{output_dir}/parse-rules.json` before a large Pass 2 run.
 
-The repository includes the full SIL Toolbox MDF reference excerpt at [`assets/Pages from ToolboxReferenceManual.pdf`](assets/Pages%20from%20ToolboxReferenceManual.pdf) (~65 pages). Pass it with `--toolbox-pdf` during **Pass 2 only**. That can help when marker conventions are ambiguous, but on Gemini the PDF is included in **every Pass 2 API call**, so cost scales with dictionary size × manual size.
+The repository includes the full SIL Toolbox MDF reference excerpt at [`assets/Pages from ToolboxReferenceManual.pdf`](assets/Pages%20from%20ToolboxReferenceManual.pdf) (~65 pages). Pass it with `--toolbox-pdf` during **Pass 2 only**. That can help when marker conventions are ambiguous, but the manual is still part of every Pass 2 request. With `--prompt-cache auto`, MUDIDI places the stable Pass 2 prefix (system instructions, `parse-rules.json` field block, stage-2 guides, and toolbox reference) behind a litellm cache-control boundary where the provider supports it. Cache hits and discounts still depend on the provider, model, token minimums, and TTL.
+
+`--media-reference auto` uses litellm PDF/file content blocks for document-capable providers and remote URIs when the supplied path is already a URL or cloud URI (for example `https://...` or `gs://...`). Local PDFs fall back to base64 `file_data`, so this is provider-compatible but not a universal permanent file-upload cache. If the model cannot read PDFs through litellm, MUDIDI falls back to the built-in MDF marker text reference instead of attaching the PDF.
 
 **Best practice for full-dictionary inference:**
 
 1. Run Stage 2 Pass 1 once (with representative `--parse-rules-page` sample(s) and good introduction input). Use multiple samples when sections differ, e.g. `--parse-rules-page page_50 --parse-rules-page page_200`.
 2. Open `{output_dir}/parse-rules.json` and **review it** — fix marker descriptions, add missing markers, tighten structure rules for this script and language pair. Or supply a hand-edited file with `--parse-rules-file`.
-3. Re-run Pass 2 (`--stage 2`) **without** `--toolbox-pdf`, relying on your curated `parse-rules.json`. Pass 1 is skipped on resume when the file already exists (unless you pass `--overwrite`).
+3. Re-run Pass 2 (`--stage 2-pass-2`) **without** `--toolbox-pdf` when possible, relying on your curated `parse-rules.json`. Pass 1 is skipped on resume when the file already exists (unless you pass `--overwrite`).
 4. Spot-check a few `stage-2/{page}/{page}.mdf.txt` outputs; edit `parse-rules.json` again if needed, then re-run failed pages with `--overwrite`.
 
 For most production runs, a well-edited `parse-rules.json` is the cost-effective substitute for attaching the toolbox manual on every page.
@@ -1007,14 +1013,14 @@ Use this page only for entry-boundary context.
 </next_page>
 ```
 
-The **`MDF markers for …`** block is not in `PROMPT.json` — it is built at runtime from Pass 1’s `parse-rules.json` (`format_prompt_block()`).
+The **`MDF markers for …`** block is not in `PROMPT.json` — it is built at runtime from Pass 1’s `parse-rules.json` (`format_prompt_block()`). In Pass 2, MUDIDI sends this block in a static user message before the page-specific transcript and images so providers can cache it when `--prompt-cache auto` is active.
 
 **`role: user`** — vision parts after that text:
 
 1. `[image]` previous page — inference only, if in the run’s page list
 2. `[image]` next page — inference only, if in the run’s page list
 3. `[image]` **current page**
-4. `[image]` Toolbox PDF — only when `--toolbox-pdf` is set and the model reads PDFs (expensive at scale; see [Parse rules vs toolbox PDF](#parse-rules-vs-toolbox-pdf)); otherwise the manual text is inlined via `stage_2_toolbox_text_section` inside the text block above
+4. `[file]` Toolbox PDF — only when `--toolbox-pdf` is set and the model reads PDFs through litellm (cacheable static context when provider support is available; see [Parse rules vs toolbox PDF](#parse-rules-vs-toolbox-pdf)); otherwise the manual text is inlined via `stage_2_toolbox_text_section` inside the static text block above
 
 Introduction images are **not** sent in Pass 2; conventions are captured in the Pass 1 `parse-rules.json` rendered as `{field_block}` above.
 
@@ -1028,7 +1034,7 @@ Introduction images are **not** sent in Pass 2; conventions are captured in the 
 | Stage 1 column                 | `stage_1_column_system`                            | same user blocks                                                                                     |
 | Stage 2 Pass 1 (single sample) | `stage_2_pass_1` (+ nested `mdf_marker_reference`) | `stage_2_pass_2`                                                                                     |
 | Stage 2 Pass 1 (multi sample)  | `stage_2_pass_1` (+ nested `mdf_marker_reference`) | `stage_2_pass_2_multi`                                                                               |
-| Stage 2 Pass 2                 | `stage_2_direct_mdf_system_{benchmark\|inference}` | `stage_2_direct_mdf_user_{benchmark\|inference}` + `{field_block}` + `{toolbox_section}` + neighbors |
+| Stage 2 Pass 2                 | `stage_2_direct_mdf_system_{benchmark\|inference}` | Static user message with `{field_block}` + `{toolbox_section}` + guides; dynamic user message with `{transcription}` + neighbors |
 
 ### Benchmark vs inference variants
 

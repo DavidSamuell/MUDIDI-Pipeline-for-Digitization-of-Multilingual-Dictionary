@@ -181,11 +181,53 @@ class FlatTranscriptionResponse(BaseModel):
     footer: List[str] = Field(default=[])
 
 
+class FlatTranscriptionResponsePlain(BaseModel):
+    """Structured output for flat Stage 1 transcription without typography markup."""
+
+    header: List[str] = Field(default=[])
+    lines: List[str] = Field(
+        description=(
+            "Every visible body line in reading order as plain text. "
+            "Do not emit <b>, <i>, or other markup tags."
+        )
+    )
+    footer: List[str] = Field(default=[])
+
+
+class ColumnTranscriptionPlain(BaseModel):
+    """Lines from a single detected column without typography markup."""
+
+    column_id: str = Field(
+        description=(
+            "Column identifier. Use 'left', 'center', 'right' for multi-column pages, "
+            "or 'single' when the page has only one column."
+        )
+    )
+    lines: List[str] = Field(
+        description=(
+            "Every visible line of text in this column exactly as it appears, "
+            "one string per line, top to bottom. Preserve all diacritics, stress marks, "
+            "and special characters. Do not merge, skip, or paraphrase any line. "
+            "Plain text only — do not emit <b>, <i>, or other markup tags."
+        )
+    )
+
+
 class TranscriptionResponse(BaseModel):
     """Structured output schema for Stage 1 column transcription."""
 
     header: List[str] = Field(default=[])
     columns: List[ColumnTranscription] = Field(
+        description="Body columns left → right; transcribe each fully top → bottom."
+    )
+    footer: List[str] = Field(default=[])
+
+
+class TranscriptionResponsePlain(BaseModel):
+    """Structured output for Stage 1 column transcription without typography markup."""
+
+    header: List[str] = Field(default=[])
+    columns: List[ColumnTranscriptionPlain] = Field(
         description="Body columns left → right; transcribe each fully top → bottom."
     )
     footer: List[str] = Field(default=[])
