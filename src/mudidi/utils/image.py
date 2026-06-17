@@ -8,6 +8,9 @@ import base64
 import io
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
+
+from mudidi.config.prompt_cache import MediaReferenceMode
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,55 @@ def image_data_url(image_path: str, mime_type: str = "image/png") -> str:
     raw, out_mime = _read_bytes_for_llm(Path(image_path), mime_type=mime_type)
     encoded = base64.b64encode(raw).decode("utf-8")
     return f"data:{out_mime};base64,{encoded}"
+
+
+def is_remote_file_reference(value: str) -> bool:
+    """Return True when ``value`` is a provider-readable file URI or URL."""
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https", "gs", "s3"}
+
+
+def model_supports_pdf_input(model: str) -> bool:
+    """Best-effort check for PDF file-part support through litellm."""
+    model_lower = model.lower()
+    if "gemini" in model_lower or model_lower.startswith(("google/", "vertex_ai/")):
+        return True
+    try:
+        from litellm.utils import supports_pdf_input
+
+        try:
+            return bool(supports_pdf_input(model, None))
+        except TypeError:
+            return bool(supports_pdf_input(model))
+    except Exception:
+        return False
+
+
+def file_content_part(
+    path_or_uri: str,
+    *,
+    mime_type: str,
+    media_reference: MediaReferenceMode = "auto",
+) -> dict:
+    """
+    Build a litellm file content block for a PDF or remote file reference.
+
+    Remote references use ``file_id`` so the provider can fetch the file without
+    re-uploading bytes. Local files fall back to a base64 ``file_data`` payload,
+    which preserves existing behavior while using litellm's document block shape.
+    """
+    if media_reference != "inline" and is_remote_file_reference(path_or_uri):
+        return {
+            "type": "file",
+            "file": {"file_id": path_or_uri, "format": mime_type},
+        }
+    return {
+        "type": "file",
+        "file": {
+            "file_data": image_data_url(path_or_uri, mime_type),
+            "format": mime_type,
+        },
+    }
 
 
 def _read_bytes_for_llm(

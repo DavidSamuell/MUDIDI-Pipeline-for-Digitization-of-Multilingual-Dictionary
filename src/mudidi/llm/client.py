@@ -200,6 +200,16 @@ def _direct_supports_reasoning_effort(model: str) -> bool:
     return False
 
 
+def _supports_prompt_cache_key(model: str) -> bool:
+    """Return True when litellm should receive OpenAI prompt cache routing hints."""
+    return _is_direct_openai(model)
+
+
+def supports_prompt_cache_key(model: str) -> bool:
+    """Return True when ``prompt_cache_key`` should be sent for ``model``."""
+    return _supports_prompt_cache_key(model)
+
+
 def _apply_openrouter_reasoning(
     params: Dict[str, Any],
     reasoning_effort: ReasoningEffort,
@@ -453,6 +463,8 @@ def _build_params(
     reasoning_effort: Optional[ReasoningEffort],
     *,
     top_p: Optional[float] = None,
+    prompt_cache_key: Optional[str] = None,
+    prompt_cache_retention: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Assemble the litellm.completion kwargs, applying model-family-specific rules."""
     api_key = api_key_for_model(model)
@@ -503,7 +515,10 @@ def _build_params(
 
     if top_p is not None:
         params["top_p"] = top_p
-
+    if prompt_cache_key and _supports_prompt_cache_key(model):
+        params["prompt_cache_key"] = prompt_cache_key
+    if prompt_cache_retention and _supports_prompt_cache_key(model):
+        params["prompt_cache_retention"] = prompt_cache_retention
     if _is_openrouter(model):
         _apply_openrouter_provider(params)
 
@@ -517,6 +532,8 @@ def complete(
     max_tokens: int = 64000,
     reasoning_effort: Optional[ReasoningEffort] = None,
     top_p: Optional[float] = None,
+    prompt_cache_key: Optional[str] = None,
+    prompt_cache_retention: Optional[str] = None,
 ) -> str:
     """
     Send a chat completion request via litellm and return the response text.
@@ -532,7 +549,14 @@ def complete(
         Raw response content string.
     """
     params = _build_params(
-        model, messages, temperature, max_tokens, reasoning_effort, top_p=top_p
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        reasoning_effort,
+        top_p=top_p,
+        prompt_cache_key=prompt_cache_key,
+        prompt_cache_retention=prompt_cache_retention,
     )
 
     print(f"Calling LLM API with model: {model}...")
@@ -559,12 +583,21 @@ def complete_with_usage(
     max_tokens: int = 64000,
     reasoning_effort: Optional[ReasoningEffort] = None,
     top_p: Optional[float] = None,
+    prompt_cache_key: Optional[str] = None,
+    prompt_cache_retention: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any]]:
     """
     Like ``complete`` but also returns a usage dict (tokens, cost_usd).
     """
     params = _build_params(
-        model, messages, temperature, max_tokens, reasoning_effort, top_p=top_p
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        reasoning_effort,
+        top_p=top_p,
+        prompt_cache_key=prompt_cache_key,
+        prompt_cache_retention=prompt_cache_retention,
     )
 
     print(f"Calling LLM API with model: {model}...")
@@ -589,7 +622,13 @@ def _merge_usage_totals(base: Dict[str, Any], addition: Dict[str, Any]) -> Dict[
     merged = dict(base)
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         merged[key] = int(merged.get(key, 0) or 0) + int(addition.get(key, 0) or 0)
-    for key in ("image_tokens", "text_tokens"):
+    for key in (
+        "image_tokens",
+        "text_tokens",
+        "cached_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ):
         if addition.get(key) is not None:
             merged[key] = int(merged.get(key, 0) or 0) + int(addition[key])
     base_cost = merged.get("cost_usd")
@@ -624,6 +663,8 @@ def complete_structured(
     max_tokens: int = 64000,
     reasoning_effort: Optional[ReasoningEffort] = None,
     top_p: Optional[float] = None,
+    prompt_cache_key: Optional[str] = None,
+    prompt_cache_retention: Optional[str] = None,
 ) -> tuple[T, str, Dict[str, Any]]:
     """
     Send a chat completion request with structured output enforcement.
@@ -633,7 +674,14 @@ def complete_structured(
         token counts, image tokens, and cost_usd for this call.
     """
     params = _build_params(
-        model, messages, temperature, max_tokens, reasoning_effort, top_p=top_p
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        reasoning_effort,
+        top_p=top_p,
+        prompt_cache_key=prompt_cache_key,
+        prompt_cache_retention=prompt_cache_retention,
     )
     params["response_format"] = response_schema
 
@@ -655,6 +703,8 @@ def complete_structured(
                 max_tokens,
                 reasoning_effort,
                 top_p=top_p,
+                prompt_cache_key=prompt_cache_key,
+                prompt_cache_retention=prompt_cache_retention,
             )
             params["response_format"] = response_schema
             params["frequency_penalty"] = min(0.3 * attempt, 1.0)
@@ -735,8 +785,18 @@ def _extract_usage(model: str, response) -> Dict[str, Any]:
     # Pull out image / text token breakdown when available (Gemini reports these)
     pd = getattr(u, "prompt_tokens_details", None)
     if pd:
-        usage["image_tokens"] = getattr(pd, "image_tokens", None)
-        usage["text_tokens"] = getattr(pd, "text_tokens", None)
+        if isinstance(pd, dict):
+            usage["image_tokens"] = pd.get("image_tokens")
+            usage["text_tokens"] = pd.get("text_tokens")
+            usage["cached_tokens"] = pd.get("cached_tokens")
+        else:
+            usage["image_tokens"] = getattr(pd, "image_tokens", None)
+            usage["text_tokens"] = getattr(pd, "text_tokens", None)
+            usage["cached_tokens"] = getattr(pd, "cached_tokens", None)
+    for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+        value = getattr(u, key, None)
+        if value is not None:
+            usage[key] = value
 
     # Attempt cost calculation via litellm's built-in pricing table
     try:
