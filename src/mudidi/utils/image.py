@@ -69,7 +69,12 @@ def model_supports_pdf_input(model: str) -> bool:
             return bool(supports_pdf_input(model, None))
         except TypeError:
             return bool(supports_pdf_input(model))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Could not determine PDF input support for model %r: %s",
+            model,
+            exc,
+        )
         return False
 
 

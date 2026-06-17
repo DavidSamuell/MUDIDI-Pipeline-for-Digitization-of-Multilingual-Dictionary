@@ -50,7 +50,7 @@ def test_pass2_places_parse_rules_in_cacheable_static_message(tmp_path: Path) ->
     assert dynamic_content[1]["type"] == "image_url"
 
 
-def test_pass2_prompt_cache_off_omits_cache_control(tmp_path: Path) -> None:
+def test_pass2_prompt_cache_off_uses_single_user_turn(tmp_path: Path) -> None:
     page = tmp_path / "page_1.png"
     page.write_bytes(b"fake-image")
 
@@ -64,7 +64,14 @@ def test_pass2_prompt_cache_off_omits_cache_control(tmp_path: Path) -> None:
         mode="benchmark",
     )
 
-    assert "cache_control" not in messages[1]["content"][-1]
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    user_content = messages[1]["content"]
+    assert "cache_control" not in user_content[0]
+    assert "MDF markers for Test Dictionary" in user_content[0]["text"]
+    assert "this is page-specific OCR text" in user_content[0]["text"]
+    assert user_content[1]["type"] == "image_url"
 
 
 def test_pass2_inference_context_stays_dynamic(tmp_path: Path) -> None:

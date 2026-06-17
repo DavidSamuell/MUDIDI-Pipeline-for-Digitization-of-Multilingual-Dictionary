@@ -39,6 +39,7 @@ from mudidi.utils.pdf_render import needs_pdf_rasterization
 
 logger = logging.getLogger(__name__)
 _TRANSCRIPTION_SPLIT_MARKER = "__MUDIDI_TRANSCRIPTION_PLACEHOLDER__"
+_TRANSCRIPTION_OPEN_TAG = "<transcription>\n"
 
 
 @dataclass(frozen=True)
@@ -169,9 +170,14 @@ def _render_direct_mdf_user_parts(
         raise ValueError(
             f"Prompt {user_prompt_id!r} must include the {{transcription}} placeholder."
         )
-    static_text = before.removesuffix("<transcription>\n").rstrip()
+    if not before.endswith(_TRANSCRIPTION_OPEN_TAG):
+        raise ValueError(
+            f"Prompt {user_prompt_id!r} must end the static prefix with "
+            f"{_TRANSCRIPTION_OPEN_TAG!r} before {{transcription}}."
+        )
+    static_text = before[: -len(_TRANSCRIPTION_OPEN_TAG)].rstrip()
     dynamic_text = (
-        "<transcription>\n"
+        _TRANSCRIPTION_OPEN_TAG
         + transcription.strip()
         + after
     ).strip()
@@ -260,18 +266,28 @@ def _build_direct_mdf_prompt(
             "image_url": {"url": image_data_url(image_path, mime)},
         }
     )
-    static_content = _mark_static_cache_boundary(
-        [{"type": "text", "text": static_text}, *toolbox_parts],
-        prompt_cache,
-    )
-    messages = [
-        {
-            "role": "system",
-            "content": direct_mdf_system_prompt(mode=mode, page_context=page_context),
-        },
-        {"role": "user", "content": static_content},
-        {"role": "user", "content": dynamic_content},
-    ]
+    system_message = {
+        "role": "system",
+        "content": direct_mdf_system_prompt(mode=mode, page_context=page_context),
+    }
+    if prompt_cache == "off":
+        merged_text = "\n".join(part for part in (static_text, dynamic_text) if part)
+        user_content = [
+            {"type": "text", "text": merged_text},
+            *toolbox_parts,
+            *dynamic_content[1:],
+        ]
+        messages = [system_message, {"role": "user", "content": user_content}]
+    else:
+        static_content = _mark_static_cache_boundary(
+            [{"type": "text", "text": static_text}, *toolbox_parts],
+            prompt_cache,
+        )
+        messages = [
+            system_message,
+            {"role": "user", "content": static_content},
+            {"role": "user", "content": dynamic_content},
+        ]
     return DirectMdfPrompt(messages=messages, static_text=static_text)
 
 
