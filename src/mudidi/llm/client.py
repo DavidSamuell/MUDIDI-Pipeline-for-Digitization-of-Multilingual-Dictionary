@@ -29,12 +29,15 @@ OpenRouter env overrides:
   - ``OPENROUTER_MAX_RETRIES`` — retry attempts for 429/502/503 (default: ``8``).
   - ``GEMINI_MAX_RETRIES`` — retry attempts for direct Gemini 429/500/502/503 (default: ``8``).
   - ``STRUCTURED_MAX_RETRIES`` — retry attempts for truncated/invalid structured JSON (default: ``3``).
+  - ``LLM_RATE_LIMIT_MAX_WAIT`` — cap for Retry-After / shared pause seconds (default: ``120``).
   - ``LITELLM_DEBUG`` — set to ``1``/``true`` to enable verbose litellm request/response logging.
 """
 
 import json
 import os
+import random
 import re
+import threading
 import time
 from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
 
@@ -85,6 +88,55 @@ def _structured_max_retries() -> int:
         return max(1, int(raw))
     except ValueError:
         return 3
+
+
+def _rate_limit_max_wait() -> float:
+    """Return the maximum wait seconds for rate-limit backoff and shared pauses."""
+    raw = os.getenv("LLM_RATE_LIMIT_MAX_WAIT", "120")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 120.0
+
+
+class _ProviderBackoff:
+    """Thread-safe pause gate so concurrent workers back off together on 429s."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._resume_at = 0.0
+
+    def wait_if_paused(self) -> None:
+        """Block until any global rate-limit pause has expired."""
+        while True:
+            with self._lock:
+                delay = self._resume_at - time.monotonic()
+            if delay <= 0:
+                return
+            time.sleep(delay)
+
+    def pause(self, seconds: float) -> None:
+        """Extend the global pause so all workers wait before the next attempt."""
+        max_wait = _rate_limit_max_wait()
+        wait = min(max(seconds, 0.0), max_wait) + random.random()
+        with self._lock:
+            now = time.monotonic()
+            new_resume = now + wait
+            if new_resume <= self._resume_at:
+                return
+            pause_seconds = new_resume - max(now, self._resume_at)
+            self._resume_at = new_resume
+        print(
+            f"  [LLM] rate limit — pausing all workers for {pause_seconds:.0f}s"
+        )
+
+
+_backoff = _ProviderBackoff()
+
+
+def wait_for_provider_backoff() -> None:
+    """Wait until a shared provider rate-limit pause clears (for page-level retries)."""
+    _backoff.wait_if_paused()
 
 
 def _is_gemini(model: str) -> bool:
@@ -308,12 +360,33 @@ def _extract_openrouter_retry_after(exc: Exception) -> Optional[float]:
     return None
 
 
-def _openrouter_retry_wait_seconds(exc: Exception, attempt: int) -> float:
-    """Wait long enough for upstream rate limits (honour Retry-After when present)."""
-    retry_after = _extract_openrouter_retry_after(exc)
-    if retry_after is not None:
-        return min(max(retry_after + 1.0, 1.0), 120.0)
-    return _exponential_retry_wait_seconds(attempt)
+def _extract_retry_after_from_headers(exc: Exception) -> Optional[float]:
+    """Parse ``Retry-After`` from an HTTP response attached to an exception."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    for key in ("Retry-After", "retry-after"):
+        value = headers.get(key) if hasattr(headers, "get") else None
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _retry_wait_seconds(exc: Exception, attempt: int) -> float:
+    """Compute retry wait from provider hints or exponential backoff."""
+    max_wait = _rate_limit_max_wait()
+    for extractor in (_extract_openrouter_retry_after, _extract_retry_after_from_headers):
+        retry_after = extractor(exc)
+        if retry_after is not None:
+            return min(max(retry_after + 1.0, 1.0), max_wait)
+    return min(_exponential_retry_wait_seconds(attempt), max_wait)
 
 
 def _exponential_retry_wait_seconds(attempt: int) -> float:
@@ -353,6 +426,11 @@ def _is_retryable_transient_error(exc: Exception) -> bool:
     )
 
 
+def is_retryable_transient_error(exc: Exception) -> bool:
+    """Return True when a failed page/worker may succeed after backoff."""
+    return _is_retryable_transient_error(exc)
+
+
 def _max_retries_for_model(model: str) -> int:
     """Return retry budget for a model family (1 = no retries)."""
     if _is_openrouter(model):
@@ -377,6 +455,7 @@ def _completion_with_retries(params: Dict[str, Any]):
     credit_adjustments = 3
     last_exc: Optional[Exception] = None
     for attempt in range(max_retries):
+        _backoff.wait_if_paused()
         try:
             return litellm.completion(**params)
         except Exception as exc:
@@ -404,17 +483,14 @@ def _completion_with_retries(params: Dict[str, Any]):
                 raise
             if attempt >= max_retries - 1:
                 raise
-            wait_seconds = (
-                _openrouter_retry_wait_seconds(exc, attempt)
-                if _is_openrouter(model)
-                else _exponential_retry_wait_seconds(attempt)
-            )
+            wait_seconds = _retry_wait_seconds(exc, attempt)
             label = _retry_label_for_model(model)
             print(
                 f"  [{label}] transient error, retry "
                 f"{attempt + 2}/{max_retries} in {wait_seconds:.0f}s"
             )
-            time.sleep(wait_seconds)
+            _backoff.pause(wait_seconds)
+            _backoff.wait_if_paused()
     if last_exc is not None:
         raise last_exc
     raise RuntimeError(f"{_retry_label_for_model(model)} completion failed without an exception")
