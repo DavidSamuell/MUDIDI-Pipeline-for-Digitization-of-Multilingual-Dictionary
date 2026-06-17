@@ -111,6 +111,15 @@ Copy [`.env.example`](.env.example) to `.env` and set only the keys for backends
 | `OPENAI_API_KEY`      | Direct OpenAI (`openai/...` or ids containing `gpt` / `openai`)  |
 | `ANTHROPIC_API_KEY`   | Direct Anthropic (`anthropic/...` or ids containing `claude`)    |
 
+Optional retry / rate-limit tuning (see [Rate limits and retries](#rate-limits-and-retries)):
+
+| Key                       | Default | Purpose                                              |
+| ------------------------- | ------- | ---------------------------------------------------- |
+| `OPENROUTER_MAX_RETRIES`  | `8`     | Retries for OpenRouter 429/502/503                   |
+| `GEMINI_MAX_RETRIES`      | `8`     | Retries for direct Gemini 429/500/502/503            |
+| `STRUCTURED_MAX_RETRIES`  | `3`     | Retries for truncated Stage 1 structured JSON        |
+| `LLM_RATE_LIMIT_MAX_WAIT` | `120`   | Max seconds for Retry-After / shared worker pause    |
+
 ---
 
 ## Prepare your dictionary folder
@@ -352,7 +361,7 @@ uv run mudidi run \
   --stage2-reasoning medium
 ```
 
-With `--stage all`, MUDIDI transcribes sample page(s) first if their Stage 1 output is not already present, then runs Pass 1 discovery before bulk Pass 2.
+With `--stage all`, MUDIDI transcribes every page (Stage 1), then runs Pass 1 discovery on the first Stage 2 page (if needed), then MDF Pass 2 for every page. Sample pages for Pass 1 may be transcribed early when their Stage 1 output is not already present.
 
 ### Stage 1 only
 
@@ -613,6 +622,7 @@ uv run mudidi run \
 | `--prompt-cache-key KEY`                    | —           | Optional stable cache-key prefix for providers with cache routing hints (notably direct OpenAI models).                                                                                                                                                   |
 | `--stage-1-guides PATH`                     | —           | Extra rules appended to Stage 1 prompt                                                                                                                                                                                                                                                            |
 | `--no-stage1-typography`                    | off         | Inference only: plain Stage 1 transcripts without `<b>`/`<i>` markup instructions                                                                                                                                                                                                                 |
+| `--batch-size N`                            | `1`         | Concurrent page workers for `two_stage` (thread pool; each worker calls `litellm.completion` independently — no litellm batch API flag)                                                                                                                                                           |
 | `--stage-2-guides PATH`                     | —           | Extra rules appended to Stage 2 prompt                                                                                                                                                                                                                                                            |
 | `--overwrite`                               | off         | Re-process pages even if output exists; also **re-runs Pass 1 LLM discovery** when `{output_dir}/parse-rules.json` already exists                                                                                                                                                                 |
 | `--limit N`                                 | —           | Process at most N pages                                                                                                                                                                                                                                                                           |
@@ -663,8 +673,16 @@ Flat mode asks the model for structured JSON (`header` / `lines` / `footer` list
   - **Option B (directory):** files in the `--pages` snippets directory only. No context from pages missing from that folder.
   - First page in the list has no previous neighbor; last has no next. Non-contiguous specs (e.g. `53,77`) mean page 53 has no next and page 77 has no previous **within the run**.
   - Output still belongs to the **current** page only; neighbors are disambiguation context for hyphenation and cross-page entries.
-- **Stage chaining** — with `--stage all`, Stage 2 reads Stage 1 predictions from `--output-dir` automatically.
+- **Stage chaining** — with `--stage all`, MUDIDI runs **all Stage 1 pages first**, then **all Stage 2 Pass 2 pages** (so Stage 2 neighbor transcripts include the next page when it is in the same run). Stage 2 reads Stage 1 predictions from `--output-dir` automatically. Default `--batch-size 1` runs one page at a time; **`--batch-size N`** runs up to N concurrent workers (thread pool over separate `litellm.completion` calls — not a litellm batch-API flag).
 - **Prompts** — inference uses `*_inference` prompt variants in `assets/PROMPT.json` (see [Customising prompts](#customising-prompts)).
+
+### Rate limits and retries
+
+All LLM calls go through [`src/mudidi/llm/client.py`](src/mudidi/llm/client.py). For **OpenRouter** and **direct Gemini** models, transient errors (429 rate limit, 502/503) are retried automatically with exponential backoff and optional `Retry-After` honouring (OpenRouter JSON metadata and HTTP headers).
+
+When **`--batch-size > 1`**, a shared pause gate coordinates concurrent workers: if any thread hits a rate limit, **all workers wait** before the next attempt (log line: `[LLM] rate limit — pausing all workers for Ns`). After client-level retries are exhausted, the batch loop may retry the **whole page** up to two more times on transient errors.
+
+Tune via `.env`: `OPENROUTER_MAX_RETRIES`, `GEMINI_MAX_RETRIES`, `STRUCTURED_MAX_RETRIES`, `LLM_RATE_LIMIT_MAX_WAIT` (default cap 120s). **`--batch-size 1`** still minimizes 429s; higher batch sizes trade a little retry overhead for faster wall-clock time once backoff is active.
 
 ---
 
