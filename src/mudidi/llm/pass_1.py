@@ -11,9 +11,9 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from mudidi.llm.client import complete
+from mudidi.llm.client import complete_with_usage
 from mudidi.llm.prompt_store import get_prompt_store
 from mudidi.paths import LEGACY_PARSE_RULES_FILENAME, PARSE_RULES_FILENAME
 from mudidi.schemas.dictionary_languages import DictionaryLanguagesConfig
@@ -72,7 +72,7 @@ def discover_field_cheatsheet(
     temperature: float = 0.1,
     languages_config: Optional[DictionaryLanguagesConfig] = None,
     dictionary_name: str = "",
-) -> DictionaryMarkerCheatsheet:
+) -> Tuple[DictionaryMarkerCheatsheet, Dict[str, Any]]:
     """Pass 1: discover markers + rules for this dictionary."""
     user_text = get_prompt_store().format(
         "stage_2_pass_2",
@@ -102,7 +102,7 @@ def discover_field_cheatsheet(
         {"role": "user", "content": content},
     ]
     logger.info("Pass 1 field discovery: model=%s sample=%s", model, sample_image.name)
-    raw = complete(
+    raw, usage = complete_with_usage(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -112,7 +112,7 @@ def discover_field_cheatsheet(
     sheet = DictionaryMarkerCheatsheet.model_validate(data)
     if dictionary_name and not sheet.dictionary_name:
         sheet = sheet.model_copy(update={"dictionary_name": dictionary_name})
-    return sheet
+    return sheet, usage
 
 
 def discover_field_cheatsheet_multi(
@@ -124,7 +124,7 @@ def discover_field_cheatsheet_multi(
     temperature: float = 0.1,
     languages_config: Optional[DictionaryLanguagesConfig] = None,
     dictionary_name: str = "",
-) -> DictionaryMarkerCheatsheet:
+) -> Tuple[DictionaryMarkerCheatsheet, Dict[str, Any]]:
     """Pass 1: discover markers + rules from several sample pages in one call."""
     if len(samples) < 2:
         raise ValueError("discover_field_cheatsheet_multi requires at least two samples.")
@@ -169,7 +169,7 @@ def discover_field_cheatsheet_multi(
         model,
         sample_names,
     )
-    raw = complete(
+    raw, usage = complete_with_usage(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -179,7 +179,7 @@ def discover_field_cheatsheet_multi(
     sheet = DictionaryMarkerCheatsheet.model_validate(data)
     if dictionary_name and not sheet.dictionary_name:
         sheet = sheet.model_copy(update={"dictionary_name": dictionary_name})
-    return sheet
+    return sheet, usage
 
 
 def load_parse_rules_file(path: Path) -> DictionaryMarkerCheatsheet:
@@ -225,19 +225,23 @@ def load_or_discover_parse_rules(
     parse_rules_file: Path | None = None,
     multi_samples: Sequence[tuple[str, str, Path]] | None = None,
     **discover_kwargs,
-) -> DictionaryMarkerCheatsheet:
+) -> Tuple[DictionaryMarkerCheatsheet, Optional[Dict[str, Any]]]:
     """Load cached parse rules, a user file, or run Pass 1 discovery."""
     read_path = find_parse_rules_path(cache_path.parent)
     if read_path.is_file() and not force_refresh and parse_rules_file is None:
         logger.info("Loading cached parse rules: %s", read_path)
-        return DictionaryMarkerCheatsheet.model_validate_json(
-            read_path.read_text(encoding="utf-8")
+        return (
+            DictionaryMarkerCheatsheet.model_validate_json(
+                read_path.read_text(encoding="utf-8")
+            ),
+            None,
         )
 
+    usage: Optional[Dict[str, Any]] = None
     if parse_rules_file is not None:
         sheet = load_parse_rules_file(parse_rules_file)
     elif multi_samples is not None and len(multi_samples) > 1:
-        sheet = discover_field_cheatsheet_multi(
+        sheet, usage = discover_field_cheatsheet_multi(
             samples=multi_samples,
             intro_images=discover_kwargs.get("intro_images", []),
             model=discover_kwargs["model"],
@@ -247,7 +251,7 @@ def load_or_discover_parse_rules(
             dictionary_name=discover_kwargs.get("dictionary_name", ""),
         )
     else:
-        sheet = discover_field_cheatsheet(**discover_kwargs)
+        sheet, usage = discover_field_cheatsheet(**discover_kwargs)
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(
@@ -255,7 +259,7 @@ def load_or_discover_parse_rules(
         encoding="utf-8",
     )
     logger.info("Saved parse rules → %s", cache_path)
-    return sheet
+    return sheet, usage
 
 
 def load_or_discover_cheatsheet(
@@ -265,4 +269,7 @@ def load_or_discover_cheatsheet(
     **discover_kwargs,
 ) -> DictionaryMarkerCheatsheet:
     """Deprecated alias for :func:`load_or_discover_parse_rules`."""
-    return load_or_discover_parse_rules(cache_path, force_refresh=force_refresh, **discover_kwargs)
+    sheet, _ = load_or_discover_parse_rules(
+        cache_path, force_refresh=force_refresh, **discover_kwargs
+    )
+    return sheet

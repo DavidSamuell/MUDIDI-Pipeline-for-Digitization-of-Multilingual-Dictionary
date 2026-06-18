@@ -18,7 +18,7 @@ from mudidi.ocr.mathpix import MathpixBackend
 from mudidi.ocr.vlm.prompts import find_ocr_hint_file
 from mudidi.schemas.ocr_result import OCRPageResult
 from mudidi.extraction.llm_two_stage import TwoStageLLMExtraction
-from mudidi.paths import PARSE_RULES_FILENAME
+from mudidi.paths import PARSE_RULES_FILENAME, PARSE_RULES_USAGE_FILENAME
 from mudidi.extraction.sample_entry import (
     configure_sample_entry_args,
     report_entry_input_failures,
@@ -1737,6 +1737,7 @@ def _run_single_entry(args, parser) -> int:
                 ),
                 force=args.overwrite,
             )
+            _write_run_usage(output_dir)
         return 0
 
     transcript_cache: dict[str, str] = {}
@@ -2095,6 +2096,8 @@ def _write_run_usage(output_dir: Path) -> None:
     elapsed_available = False
 
     for usage_file in sorted(output_dir.rglob("*_usage.json")):
+        if usage_file.name == PARSE_RULES_USAGE_FILENAME:
+            continue
         data = json.loads(usage_file.read_text(encoding="utf-8"))
         page_cost = data.get("total_cost_usd")
         if page_cost is not None:
@@ -2106,8 +2109,25 @@ def _write_run_usage(output_dir: Path) -> None:
             elapsed_available = True
         pages.append({"page": usage_file.parent.name, **data})
 
+    field_discovery = None
+    parse_rules_usage_path = output_dir / PARSE_RULES_USAGE_FILENAME
+    if parse_rules_usage_path.is_file():
+        parse_rules_usage = json.loads(parse_rules_usage_path.read_text(encoding="utf-8"))
+        field_discovery = parse_rules_usage.get("field_discovery")
+        discovery_in_pages = any(page.get("field_discovery") for page in pages)
+        if not discovery_in_pages:
+            discovery_cost = parse_rules_usage.get("total_cost_usd")
+            discovery_elapsed = parse_rules_usage.get("total_elapsed_seconds")
+            if discovery_cost is not None:
+                total_cost += discovery_cost
+                cost_available = True
+            if discovery_elapsed is not None:
+                total_elapsed += discovery_elapsed
+                elapsed_available = True
+
     run_summary = {
         "pages": pages,
+        "field_discovery": field_discovery,
         "run_total_cost_usd": round(total_cost, 8) if cost_available else None,
         "run_total_elapsed_seconds": round(total_elapsed, 3) if elapsed_available else None,
     }

@@ -6,7 +6,11 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from mudidi.llm.pass_1 import discover_field_cheatsheet_multi, load_parse_rules_file
+from mudidi.llm.pass_1 import (
+    discover_field_cheatsheet_multi,
+    load_or_discover_parse_rules,
+    load_parse_rules_file,
+)
 from mudidi.schemas.dictionary_languages import (
     DictionaryLanguagesConfig,
     SourceLanguageConfig,
@@ -29,11 +33,12 @@ def test_load_parse_rules_file(tmp_path: Path) -> None:
     assert loaded.markers[0].marker == "lx"
 
 
-@patch("mudidi.llm.pass_1.complete")
+@patch("mudidi.llm.pass_1.complete_with_usage")
 def test_discover_field_cheatsheet_multi_uses_multi_prompt(mock_complete) -> None:
     mock_complete.return_value = (
         '{"dictionary_name": "Test", "markers": [{"marker": "lx", "description": "hw"}], '
-        '"rules": [], "abbreviations": {}}'
+        '"rules": [], "abbreviations": {}}',
+        {"model": "gemini/gemini-3-flash-preview", "total_tokens": 100, "cost_usd": 0.01},
     )
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -48,7 +53,7 @@ def test_discover_field_cheatsheet_multi_uses_multi_prompt(mock_complete) -> Non
         png1.write_bytes(png_bytes)
         png2.write_bytes(png_bytes)
 
-        sheet = discover_field_cheatsheet_multi(
+        sheet, usage = discover_field_cheatsheet_multi(
             samples=[
                 ("page_1", "line one", png1),
                 ("page_2", "line two", png2),
@@ -58,6 +63,7 @@ def test_discover_field_cheatsheet_multi_uses_multi_prompt(mock_complete) -> Non
         )
 
     assert sheet.dictionary_name == "Test"
+    assert usage["cost_usd"] == 0.01
     user_content = mock_complete.call_args.kwargs["messages"][1]["content"]
     text_part = user_content[0]["text"]
     assert "Several sample dictionary pages" in text_part
@@ -66,11 +72,12 @@ def test_discover_field_cheatsheet_multi_uses_multi_prompt(mock_complete) -> Non
     assert len(user_content) == 3  # text + two sample images
 
 
-@patch("mudidi.llm.pass_1.complete")
+@patch("mudidi.llm.pass_1.complete_with_usage")
 def test_discover_field_cheatsheet_multi_includes_config_hint_when_set(mock_complete) -> None:
     mock_complete.return_value = (
         '{"dictionary_name": "Test", "markers": [{"marker": "lx", "description": "hw"}], '
-        '"rules": [], "abbreviations": {}}'
+        '"rules": [], "abbreviations": {}}',
+        {"model": "gemini/gemini-3-flash-preview", "total_tokens": 100, "cost_usd": 0.01},
     )
     languages = DictionaryLanguagesConfig(
         layout="column_trilingual",
@@ -107,3 +114,17 @@ def test_discover_field_cheatsheet_multi_includes_config_hint_when_set(mock_comp
     text_part = user_content[0]["text"]
     assert "layout=column_trilingual" in text_part
     assert "Circassian" in text_part
+
+
+def test_load_or_discover_parse_rules_cached_skips_usage(tmp_path: Path) -> None:
+    cache_path = tmp_path / "parse-rules.json"
+    cache_path.write_text(
+        DictionaryMarkerCheatsheet(
+            dictionary_name="Test",
+            markers=[MarkerLine(marker="lx", description="headword")],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    sheet, usage = load_or_discover_parse_rules(cache_path)
+    assert sheet.dictionary_name == "Test"
+    assert usage is None

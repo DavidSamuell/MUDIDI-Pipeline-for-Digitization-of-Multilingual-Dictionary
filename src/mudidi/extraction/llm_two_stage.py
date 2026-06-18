@@ -46,7 +46,7 @@ from mudidi.llm.pass_1 import (
     load_or_discover_parse_rules,
     load_parse_rules_file,
 )
-from mudidi.paths import PARSE_RULES_FILENAME
+from mudidi.paths import PARSE_RULES_FILENAME, PARSE_RULES_USAGE_FILENAME
 from mudidi.llm.pass_2 import extract_direct_mdf
 from mudidi.schemas.field_cheatsheet import DictionaryMarkerCheatsheet
 from mudidi.schemas.field_map import FieldMapPrompt
@@ -111,11 +111,14 @@ def _print_usage_summary(
     total: Optional[float],
     *,
     total_elapsed: Optional[float] = None,
+    discovery: Optional[dict] = None,
 ) -> None:
     print("\n  ── Usage ──────────────────────────────────────────")
     stages: list[tuple[str, dict]] = []
     if s1:
         stages.append(("Stage 1", s1))
+    if discovery:
+        stages.append(("Pass 1 (parse rules)", discovery))
     if s2:
         stages.append(("Stage 2", s2))
     for label, u in stages:
@@ -133,6 +136,26 @@ def _print_usage_summary(
     if footer:
         print(f"  Page total: {'  '.join(footer)}")
     print()
+
+
+def _write_parse_rules_usage(experiment_dir: Path, discovery_usage: Dict[str, Any]) -> None:
+    """Persist Pass 1 parse-rules discovery usage at the experiment root."""
+    payload = {
+        "field_discovery": discovery_usage,
+        "total_cost_usd": discovery_usage.get("cost_usd"),
+        "total_elapsed_seconds": discovery_usage.get("elapsed_seconds"),
+    }
+    out = experiment_dir / PARSE_RULES_USAGE_FILENAME
+    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    cost = discovery_usage.get("cost_usd")
+    elapsed = discovery_usage.get("elapsed_seconds")
+    parts: list[str] = []
+    if cost is not None:
+        parts.append(f"${cost:.6f}")
+    if elapsed is not None:
+        parts.append(f"{elapsed:.1f}s")
+    detail = f" ({'  '.join(parts)})" if parts else ""
+    print(f"Pass 1 usage saved → {out.name}{detail}")
 
 
 def _sanitize_messages(messages: list) -> list:
@@ -380,7 +403,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                 )
 
             print("Stage 2: Direct MDF extraction …")
-            field_map = self._ensure_field_map(
+            field_map, discovery_usage = self._ensure_field_map(
                 transcribed_text, image_path, run_stage=run_stage
             )
             stage2_started = time.perf_counter()
@@ -420,6 +443,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             )
             total_elapsed = _sum_elapsed(
                 stage1_usage.get("elapsed_seconds") if stage1_usage else None,
+                discovery_usage.get("elapsed_seconds") if discovery_usage else None,
                 stage2_usage.get("elapsed_seconds") if stage2_usage else None,
             )
             page_usage = {
@@ -434,12 +458,13 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                 json.dumps(page_usage, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-            if stage1_usage or stage2_usage:
+            if stage1_usage or stage2_usage or discovery_usage:
                 _print_usage_summary(
                     stage1_usage or {},
                     stage2_usage or {},
                     total_cost,
                     total_elapsed=total_elapsed,
+                    discovery=discovery_usage or None,
                 )
 
         return DictionaryPage(
@@ -543,7 +568,8 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
     def discover_parse_rules(self) -> FieldMapPrompt:
         """Run Stage 2 Pass 1 only and write ``parse-rules.json``."""
-        return self._ensure_field_map("", "", run_stage="2-pass-1")
+        field_map, _ = self._ensure_field_map("", "", run_stage="2-pass-1")
+        return field_map
 
     def _ensure_field_map(
         self,
@@ -551,15 +577,17 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         image_path: str,
         *,
         run_stage: str = "2",
-    ) -> FieldMapPrompt:
+    ) -> tuple[FieldMapPrompt, Dict[str, Any]]:
         """Pass 1: load or discover field map once per dictionary."""
         del transcribed_text, image_path  # discovery uses configured sample page(s)
         if self._field_map is not None:
-            return self._field_map
+            return self._field_map, {}
 
         with self._field_map_lock:
             if self._field_map is not None:
-                return self._field_map
+                return self._field_map, {}
+
+            discovery_usage: Dict[str, Any] = {}
 
             if not self.stage2_experiment_dir:
                 raise ValueError(
@@ -645,16 +673,20 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                         f"from [{sample_list}] (cache → {cache_path}) …"
                     )
 
-                self._field_map = load_or_discover_parse_rules(
+                discovery_started = time.perf_counter()
+                self._field_map, pass1_usage = load_or_discover_parse_rules(
                     cache_path,
                     force_refresh=self.overwrite,
                     parse_rules_file=None,
                     multi_samples=multi_samples,
                     **discover_kwargs,
                 )
+                if pass1_usage:
+                    discovery_usage = _with_elapsed(pass1_usage, discovery_started)
+                    _write_parse_rules_usage(self.stage2_experiment_dir, discovery_usage)
 
             print(self._field_map.format_prompt_block())
-            return self._field_map
+            return self._field_map, discovery_usage
 
     def _stage2_direct_mdf(
         self,
