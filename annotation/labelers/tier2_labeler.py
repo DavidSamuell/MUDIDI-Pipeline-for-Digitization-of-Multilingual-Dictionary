@@ -212,7 +212,7 @@ def label_dictionary(
     reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     limit: Optional[int] = None,
-    skip_existing: bool = False,
+    skip_existing: bool = True,
     output_root: str | Path = OUTPUT_ROOT,
 ) -> List[PageResult]:
     """Label gold pages of a Tier-2 dictionary, one :class:`PageResult` per page.
@@ -220,8 +220,9 @@ def label_dictionary(
     A page whose LLM output drifts past the gate (:class:`Tier2DriftError`), fails
     its map invariants (``SpanMapError``), or errors mid-call is recorded as a
     ``"failed"`` result and the batch continues -- a single bad page never aborts
-    the run. With ``skip_existing`` a page whose ``*_lang.json`` already exists is
-    returned as ``"skipped"`` without an LLM call (cheap resume).
+    the run. By default (``skip_existing=True``) a page whose ``*_lang.json`` already
+    exists is returned as ``"skipped"`` without an LLM call; pass ``skip_existing=
+    False`` (CLI ``--overwrite``) to re-label it.
     """
     dictionary_dir = Path(dictionary_dir)
     dictionary = dictionary_dir.name
@@ -318,9 +319,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"(default: {OUTPUT_ROOT}).",
     )
     parser.add_argument(
-        "--skip-existing",
+        "--overwrite",
         action="store_true",
-        help="Skip pages whose *_lang.json already exists (cheap resume; no LLM call).",
+        help="Re-label pages even if a *_lang.json already exists "
+        "(default: skip existing pages, no LLM call).",
     )
     parser.add_argument(
         "--dry-run",
@@ -359,7 +361,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             reasoning_effort=args.reasoning_effort,
             max_tokens=args.max_tokens,
             limit=args.limit,
-            skip_existing=args.skip_existing,
+            skip_existing=not args.overwrite,
             output_root=args.output_root,
         ):
             if result.status == "skipped":

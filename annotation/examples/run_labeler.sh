@@ -29,6 +29,9 @@ TIER="${TIER:-all}"
 # Tier-2 LLM model (same litellm path as the Stage 1 OCR run).
 MODEL="${MODEL:-gemini/gemini-3-flash-preview}"
 
+# Existing *_lang.json maps are skipped by default. Set OVERWRITE=1 to re-label them.
+OVERWRITE="${OVERWRITE:-0}"
+
 # Languages (dictionary folder names) to process. Leave EMPTY to process ALL.
 # Each name must match a folder under INPUT_DIR, e.g. "Canala-English".
 DICTIONARIES=(
@@ -41,7 +44,8 @@ DICTIONARIES=(
 # empty, so "${arr[@]}" is safe under `set -u` even on macOS bash 3.2.
 tier1_args=( --dictionaries-root "$INPUT_DIR" --output-root "$OUTPUT_ROOT" )
 tier2_args=( --dictionaries-root "$INPUT_DIR" --output-root "$OUTPUT_ROOT"
-             --model "$MODEL" --skip-existing )
+             --model "$MODEL" )
+[ "$OVERWRITE" = "1" ] && tier2_args+=( --overwrite )
 if [ "${#DICTIONARIES[@]}" -gt 0 ]; then
   for d in "${DICTIONARIES[@]}"; do
     [ -n "$d" ] || continue

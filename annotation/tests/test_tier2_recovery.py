@@ -205,10 +205,32 @@ def test_label_dictionary_skip_existing_avoids_llm(tmp_path, monkeypatch):
         return "<Canala>akɔɔtee</Canala> <English>small</English>\n", {}
 
     monkeypatch.setattr(tier2_labeler, "complete_with_usage", fake_llm)
-    results = label_dictionary(dictionary_dir, skip_existing=True, output_root=out_root)
+    # skip_existing is the default; an existing map is skipped without an LLM call.
+    results = label_dictionary(dictionary_dir, output_root=out_root)
     assert results[0].status == "skipped"
     assert results[0].out_path == existing
-    assert calls == []  # existing map -> no LLM call
+    assert calls == []
+
+
+def test_label_dictionary_overwrite_relabels_existing(tmp_path, monkeypatch):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "akɔɔtee small\n"})
+    out_root = tmp_path / "outputs"
+    gold = next(dictionary_dir.glob("Stage 1 Gold OCR/*/*_stage1_GOLD_flat.txt"))
+    existing = tier2_labeler._lang_map_path(gold, out_root)
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("{}", encoding="utf-8")
+
+    calls = []
+
+    def fake_llm(**kwargs):
+        calls.append(1)
+        return "<Canala>akɔɔtee</Canala> <English>small</English>\n", {}
+
+    monkeypatch.setattr(tier2_labeler, "complete_with_usage", fake_llm)
+    # skip_existing=False (CLI --overwrite) re-labels the page despite the existing map.
+    results = label_dictionary(dictionary_dir, skip_existing=False, output_root=out_root)
+    assert results[0].status == "ok"
+    assert calls == [1]  # LLM was called
 
 
 def test_parse_llm_output_splits_legend_and_tagged():
