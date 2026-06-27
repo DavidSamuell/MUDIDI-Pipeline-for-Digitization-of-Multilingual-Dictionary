@@ -270,10 +270,29 @@ def label_dictionary(dictionary_dir: str | Path) -> List[Tuple[Path, PageLanguag
     return results
 
 
-def _lang_map_path(gold_path: Path) -> Path:
-    """Sibling ``*_lang.json`` path next to a ``*_stage1_GOLD_flat.txt`` file."""
+# Span maps are written under this root, one subfolder per dictionary (matching the
+# dictionary folder name in ``dataset/MUDIDI/dictionaries``), e.g.
+# ``annotation/outputs/Canala-English/page_12_lang.json``. Kept out of the dataset so
+# the read-only Hugging Face checkout stays clean.
+OUTPUT_ROOT = Path("annotation/outputs")
+
+
+def _dictionary_name(gold_path: Path) -> str:
+    """Derive the dictionary folder name from a gold page path.
+
+    Gold pages live at ``<root>/<DictName>/Stage 1 Gold OCR/<sub>/page_N_...txt``,
+    so the dictionary name is the folder just above ``Stage 1 Gold OCR``.
+    """
+    for parent in gold_path.parents:
+        if parent.parent is not None and parent.name == "Stage 1 Gold OCR":
+            return parent.parent.name
+    return gold_path.parent.name  # fallback (flat layout)
+
+
+def _lang_map_path(gold_path: Path, output_root: str | Path = OUTPUT_ROOT) -> Path:
+    """Output ``*_lang.json`` path under ``<output_root>/<dictionary>/``."""
     stem = gold_path.name.split("_stage1_GOLD_flat.txt")[0]
-    return gold_path.with_name(f"{stem}_lang.json")
+    return Path(output_root) / _dictionary_name(gold_path) / f"{stem}_lang.json"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -291,6 +310,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         dest="dictionaries",
         default=None,
         help="Dictionary folder name to label (repeatable). Default: all Tier-1 dicts.",
+    )
+    parser.add_argument(
+        "--output-root",
+        default=str(OUTPUT_ROOT),
+        help="Root for *_lang.json output, one subfolder per dictionary "
+        f"(default: {OUTPUT_ROOT}).",
     )
     parser.add_argument(
         "--dry-run",
@@ -312,8 +337,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
         pairs = label_dictionary(dictionary_dir)
         for gold_path, page_map in pairs:
-            out_path = _lang_map_path(gold_path)
+            out_path = _lang_map_path(gold_path, args.output_root)
             if not args.dry_run:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
                 page_map.save(out_path)
                 written += 1
             print(

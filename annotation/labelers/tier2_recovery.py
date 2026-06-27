@@ -24,7 +24,7 @@ No third-party dependencies beyond ``python-Levenshtein`` and ``mudidi.schemas``
 from __future__ import annotations
 
 import re
-from typing import List, Sequence, Set, Tuple
+from typing import List, Mapping, Optional, Sequence, Set, Tuple
 
 import Levenshtein
 
@@ -141,11 +141,17 @@ def recover_page_map(
     rule_set: str = RULE_SET,
     markup_tags: Set[str] | frozenset = DEFAULT_MARKUP_TAGS,
     max_drift: float = 0.02,
+    code_to_language: Optional[Mapping[str, str]] = None,
 ) -> Tuple[PageLanguageMap, List[str], float]:
     """Recover a validated :class:`PageLanguageMap` from tagged LLM output.
 
     Returns ``(page_map, used_languages, drift)`` where ``drift`` is the fraction of
     gold characters the de-tagged text disagreed on (0.0 on an exact match).
+
+    When the model tags runs with ISO 639-3 codes (``<ike>``, ``<eng>``) rather than
+    full names, pass ``code_to_language`` (from the model's own legend) to translate
+    each tag back to its language name; unknown codes are kept verbatim. With
+    ``code_to_language=None`` the tag names are used as the languages directly.
 
     Raises:
         Tier2DriftError: if the de-tagged text drifts from ``raw_gold`` by more than
@@ -153,6 +159,9 @@ def recover_page_map(
         SpanMapError: if the rebuilt map fails its gold-binding/coverage invariants.
     """
     recovered, rec_langs, used = parse_tagged(tagged, markup_tags)
+    if code_to_language:
+        rec_langs = [code_to_language.get(lang, lang) for lang in rec_langs]
+        used = {code_to_language.get(name, name) for name in used}
     if recovered == raw_gold:
         char_lang: List[str] = list(rec_langs)
         drift = 0.0

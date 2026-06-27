@@ -18,6 +18,10 @@ process only. Dependency direction is **annotation → mudidi** (never the rever
 | `label_studio/` | Label Studio NER bridge. |
 | `label_studio/label_studio_ner.py` | `PageLanguageMap` ⇄ Label Studio NER task import/export. |
 | `label_studio/span_schema.py` | Compat shim re-exporting `mudidi.schemas.language_span` for flat imports. |
+| `examples/` | Runnable shell scripts (see below). |
+| `examples/run_labeler.sh` | Run Tier-1 + Tier-2 over the dictionaries → `outputs/`. |
+| `examples/start_label_studio.sh` | Start the Label Studio dashboard for NER review. |
+| `outputs/` | Generated `*_lang.json` span maps, one subfolder per dictionary (matches the dataset folder names). |
 | `spikes/` | Exploratory only — not part of the pipeline. |
 | `spikes/lid_spike.py` | LID-vs-script-check coverage spike (needs `lingua`). |
 | `docs/` | Write-ups and decisions (no code). |
