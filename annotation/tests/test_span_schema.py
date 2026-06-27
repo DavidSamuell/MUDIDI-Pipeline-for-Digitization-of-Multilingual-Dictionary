@@ -1,15 +1,11 @@
-"""Unit tests for the span-label gold contract (annotation/span_schema.py)."""
+"""Unit tests for the span-label gold contract (annotation/label_studio/span_schema.py)."""
 
 from __future__ import annotations
-
-import sys
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from span_schema import (  # noqa: E402  (flat sibling import, see lid_spike.py)
+from span_schema import (  # noqa: E402  (flat import; see annotation/tests/conftest.py)
     SPACE,
     LanguageSpan,
     PageLanguageMap,

@@ -1,14 +1,10 @@
-"""Unit tests for the Label Studio NER round-trip (annotation/label_studio_ner.py)."""
+"""Unit tests for the Label Studio NER round-trip (annotation/label_studio/label_studio_ner.py)."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from label_studio_ner import (  # noqa: E402  (flat sibling import)
+from label_studio_ner import (  # noqa: E402  (flat import; see annotation/tests/conftest.py)
     build_labels_config,
     load_label_set,
     ls_task_to_page_map,

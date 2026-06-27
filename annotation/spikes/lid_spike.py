@@ -14,7 +14,7 @@ can carry and which need the LLM. Eyeball the printed residual verdicts: TARGET
 spans should read as real target-language words; SOURCE spans should be romanized
 headwords / function words.
 
-Run:  uv run python annotation/lid_spike.py
+Run:  uv run python annotation/spikes/lid_spike.py
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "labelers"))
 from script_check import ScriptConfig, TokenCategory, classify_token  # noqa: E402
 
 from lingua import Language, LanguageDetectorBuilder  # noqa: E402

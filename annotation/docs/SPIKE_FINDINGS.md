@@ -1,6 +1,6 @@
 # LID Spike Findings (script-check → LID → merge)
 
-Run: `uv run python annotation/lid_spike.py` (lingua 2.1.1; GlotLID model also
+Run: `uv run python annotation/spikes/lid_spike.py` (lingua 2.1.1; GlotLID model also
 downloaded and available via huggingface `cis-lmu/glotlid`).
 
 ## Raw results (1 gold page each)

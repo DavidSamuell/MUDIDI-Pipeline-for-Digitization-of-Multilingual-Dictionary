@@ -1,13 +1,9 @@
-"""Unit tests for the Tier-1 script-check labeler (annotation/tier1_labeler.py)."""
+"""Unit tests for the Tier-1 script-check labeler (annotation/labelers/tier1_labeler.py)."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from label_studio_ner import page_map_to_ls_task, ls_task_to_page_map  # noqa: E402
 from tier1_labeler import (  # noqa: E402
     Tier1Error,
