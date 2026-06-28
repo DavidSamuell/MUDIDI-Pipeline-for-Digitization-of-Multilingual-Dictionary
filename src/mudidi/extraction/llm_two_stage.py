@@ -123,11 +123,19 @@ def _print_usage_summary(
         stages.append(("Stage 2", s2))
     for label, u in stages:
         img = f"  img={u.get('image_tokens')}" if u.get("image_tokens") else ""
+        output_parts: list[str] = []
+        if u.get("reasoning_tokens") is not None:
+            output_parts.append(f"reasoning={u['reasoning_tokens']}")
+        if u.get("response_text_tokens") is not None:
+            output_parts.append(f"response={u['response_text_tokens']}")
+        output_detail = f"  {'  '.join(output_parts)}" if output_parts else ""
         cost = f"  ${u.get('cost_usd'):.6f}" if u.get("cost_usd") is not None else ""
         elapsed = ""
         if u.get("elapsed_seconds") is not None:
             elapsed = f"  {u['elapsed_seconds']:.1f}s"
-        print(f"  {label}: {u.get('total_tokens')} tokens{img}{cost}{elapsed}")
+        print(
+            f"  {label}: {u.get('total_tokens')} tokens{img}{output_detail}{cost}{elapsed}"
+        )
     footer: list[str] = []
     if total is not None:
         footer.append(f"${total:.6f}")

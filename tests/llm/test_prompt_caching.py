@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mudidi.extraction.llm_two_stage import _sanitize_messages
-from mudidi.llm.client import _extract_usage, supports_prompt_cache_key
+from mudidi.llm.client import _extract_usage, _merge_usage_totals, supports_prompt_cache_key
 from mudidi.llm.pass_2 import build_direct_mdf_messages
 from mudidi.schemas.field_cheatsheet import DictionaryMarkerCheatsheet, MarkerLine
 from mudidi.utils.page_context import NeighborPage, PageContext
@@ -156,6 +156,76 @@ def test_extract_usage_includes_prompt_cache_metrics() -> None:
     assert usage["cached_tokens"] == 80
     assert usage["cache_creation_input_tokens"] == 0
     assert usage["cache_read_input_tokens"] == 80
+
+
+def test_extract_usage_includes_completion_reasoning_breakdown_object() -> None:
+    class CompletionDetails:
+        reasoning_tokens = 16746
+        text_tokens = 1571
+
+    class Usage:
+        prompt_tokens = 42084
+        completion_tokens = 18317
+        total_tokens = 60401
+        prompt_tokens_details = None
+        completion_tokens_details = CompletionDetails()
+
+    class Response:
+        usage = Usage()
+
+    usage = _extract_usage("gemini/gemini-3.5-flash", Response())
+
+    assert usage["reasoning_tokens"] == 16746
+    assert usage["response_text_tokens"] == 1571
+
+
+def test_extract_usage_includes_completion_reasoning_breakdown_dict() -> None:
+    class Usage:
+        prompt_tokens = 1000
+        completion_tokens = 9800
+        total_tokens = 10800
+        prompt_tokens_details = None
+        completion_tokens_details = {
+            "reasoning_tokens": 9000,
+            "text_tokens": 800,
+        }
+
+    class Response:
+        usage = Usage()
+
+    usage = _extract_usage("openai/gpt-5.5", Response())
+
+    assert usage["reasoning_tokens"] == 9000
+    assert usage["response_text_tokens"] == 800
+
+
+def test_extract_usage_falls_back_to_top_level_reasoning_tokens() -> None:
+    class Usage:
+        prompt_tokens = 100
+        completion_tokens = 50
+        total_tokens = 150
+        reasoning_tokens = 40
+        prompt_tokens_details = None
+        completion_tokens_details = None
+
+    class Response:
+        usage = Usage()
+
+    usage = _extract_usage("gemini/gemini-3.1-pro-preview", Response())
+
+    assert usage["reasoning_tokens"] == 40
+    assert "response_text_tokens" not in usage
+
+
+def test_merge_usage_totals_sums_reasoning_and_response_text() -> None:
+    merged = _merge_usage_totals(
+        {"reasoning_tokens": 1000, "response_text_tokens": 200, "completion_tokens": 1200},
+        {"reasoning_tokens": 500, "response_text_tokens": 100, "completion_tokens": 600},
+    )
+
+    assert merged["reasoning_tokens"] == 1500
+    assert merged["response_text_tokens"] == 300
+    assert merged["completion_tokens"] == 1800
 
 
 def test_prompt_cache_key_support_is_direct_openai_only() -> None:

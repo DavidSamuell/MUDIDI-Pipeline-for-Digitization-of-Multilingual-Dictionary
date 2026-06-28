@@ -30,6 +30,7 @@ OpenRouter env overrides:
   - ``GEMINI_MAX_RETRIES`` — retry attempts for direct Gemini 429/500/502/503 (default: ``8``).
   - ``STRUCTURED_MAX_RETRIES`` — retry attempts for truncated/invalid structured JSON (default: ``3``).
   - ``LLM_RATE_LIMIT_MAX_WAIT`` — cap for Retry-After / shared pause seconds (default: ``120``).
+  - ``LLM_RATE_LIMIT_REDUCE_CONCURRENCY`` — on 429/rate-limit, drop page workers to 1 (default: ``true``).
   - ``LITELLM_DEBUG`` — set to ``1``/``true`` to enable verbose litellm request/response logging.
 """
 
@@ -39,7 +40,8 @@ import random
 import re
 import threading
 import time
-from typing import Any, Dict, List, Literal, Optional, Type, TypeVar
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Literal, Optional, Type, TypeVar
 
 import litellm
 from dotenv import load_dotenv
@@ -134,9 +136,96 @@ class _ProviderBackoff:
 _backoff = _ProviderBackoff()
 
 
+class _PageConcurrencyLimiter:
+    """Adaptive cap on concurrent page workers (``--batch-size``) after rate limits."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._enabled = False
+        self._max_workers = 1
+        self._active = 0
+        self._reduced = False
+
+    def configure(self, max_workers: int) -> None:
+        """Enable limiting when ``max_workers`` > 1; reset state for a new run phase."""
+        with self._cond:
+            workers = max(1, int(max_workers))
+            self._enabled = workers > 1
+            self._max_workers = workers
+            self._active = 0
+            self._reduced = False
+            self._cond.notify_all()
+
+    def reduce_to_serial(self) -> None:
+        """Drop the in-run concurrency cap to one page at a time."""
+        if not _rate_limit_reduce_concurrency_enabled():
+            return
+        with self._cond:
+            if not self._enabled or self._max_workers <= 1 or self._reduced:
+                return
+            self._reduced = True
+            self._max_workers = 1
+            self._cond.notify_all()
+        print("  [LLM] rate limit — reducing page concurrency to 1")
+
+    def acquire(self) -> None:
+        with self._cond:
+            while self._enabled and self._active >= self._max_workers:
+                self._cond.wait()
+            self._active += 1
+
+    def release(self) -> None:
+        with self._cond:
+            self._active = max(0, self._active - 1)
+            self._cond.notify()
+
+    @property
+    def max_workers(self) -> int:
+        with self._lock:
+            return self._max_workers
+
+
+_page_concurrency = _PageConcurrencyLimiter()
+
+
+def _rate_limit_reduce_concurrency_enabled() -> bool:
+    """Return True when 429s should drop ``--batch-size`` workers to 1 for the rest of the run."""
+    return os.getenv("LLM_RATE_LIMIT_REDUCE_CONCURRENCY", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def configure_page_concurrency(max_workers: int) -> None:
+    """Set the page worker cap for the current run phase (see ``--batch-size``)."""
+    _page_concurrency.configure(max_workers)
+
+
+@contextmanager
+def page_concurrency_slot() -> Iterator[None]:
+    """Hold one page-worker slot while ``--batch-size`` > 1."""
+    _page_concurrency.acquire()
+    try:
+        yield
+    finally:
+        _page_concurrency.release()
+
+
 def wait_for_provider_backoff() -> None:
     """Wait until a shared provider rate-limit pause clears (for page-level retries)."""
     _backoff.wait_if_paused()
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Return True when an exception indicates provider throttling (429 / rate limit)."""
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, APIError) and getattr(exc, "status_code", None) == 429:
+        return True
+    message = str(exc).lower()
+    return "429" in message or "rate limit" in message
 
 
 def _is_gemini(model: str) -> bool:
@@ -489,6 +578,8 @@ def _completion_with_retries(params: Dict[str, Any]):
                 f"  [{label}] transient error, retry "
                 f"{attempt + 2}/{max_retries} in {wait_seconds:.0f}s"
             )
+            if _is_rate_limit_error(exc):
+                _page_concurrency.reduce_to_serial()
             _backoff.pause(wait_seconds)
             _backoff.wait_if_paused()
     if last_exc is not None:
@@ -693,6 +784,22 @@ def complete_with_usage(
     return content, _extract_usage(model, response)
 
 
+def _token_detail_value(details: Any, key: str) -> Optional[int]:
+    """Read an integer token count from a litellm token-details dict or wrapper."""
+    if details is None:
+        return None
+    if isinstance(details, dict):
+        value = details.get(key)
+    else:
+        value = getattr(details, key, None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _merge_usage_totals(base: Dict[str, Any], addition: Dict[str, Any]) -> Dict[str, Any]:
     """Accumulate token counts and cost across structured-output retry attempts."""
     merged = dict(base)
@@ -704,6 +811,8 @@ def _merge_usage_totals(base: Dict[str, Any], addition: Dict[str, Any]) -> Dict[
         "cached_tokens",
         "cache_creation_input_tokens",
         "cache_read_input_tokens",
+        "reasoning_tokens",
+        "response_text_tokens",
     ):
         if addition.get(key) is not None:
             merged[key] = int(merged.get(key, 0) or 0) + int(addition[key])
@@ -873,6 +982,18 @@ def _extract_usage(model: str, response) -> Dict[str, Any]:
         value = getattr(u, key, None)
         if value is not None:
             usage[key] = value
+
+    # Completion breakdown: reasoning vs visible response text (Gemini, OpenAI o/GPT-5,
+    # Anthropic extended thinking, OpenRouter passthrough — all via litellm Usage).
+    cd = getattr(u, "completion_tokens_details", None)
+    reasoning_tokens = _token_detail_value(cd, "reasoning_tokens")
+    if reasoning_tokens is None:
+        reasoning_tokens = _token_detail_value(u, "reasoning_tokens")
+    response_text_tokens = _token_detail_value(cd, "text_tokens")
+    if reasoning_tokens is not None:
+        usage["reasoning_tokens"] = reasoning_tokens
+    if response_text_tokens is not None:
+        usage["response_text_tokens"] = response_text_tokens
 
     # Attempt cost calculation via litellm's built-in pricing table
     try:

@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -62,7 +63,12 @@ from mudidi.utils.parse_rules_pages import (
 from mudidi.cli.model_args import attach_stage_models, register_model_arguments
 from mudidi.utils.pdf_split import extract_pdf_pages, parse_page_spec
 from mudidi.utils.stage1_input import read_stage1_transcript_text
-from mudidi.llm.client import is_retryable_transient_error, wait_for_provider_backoff
+from mudidi.llm.client import (
+    configure_page_concurrency,
+    is_retryable_transient_error,
+    page_concurrency_slot,
+    wait_for_provider_backoff,
+)
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
 
 _DEFAULT_METADATA_CSV = (
@@ -1860,6 +1866,7 @@ def _run_single_entry(args, parser) -> int:
                 "transcripts empty until those pages finish."
             )
         if use_concurrent:
+            configure_page_concurrency(batch_size)
             print(f"Concurrent workers (--batch-size): {batch_size}")
 
         print_lock = threading.Lock()
@@ -1869,6 +1876,11 @@ def _run_single_entry(args, parser) -> int:
                 print(*msg, **kwargs)
 
         def _run_page(idx: int, image_file: Path) -> str:
+            slot_ctx = page_concurrency_slot() if use_concurrent else nullcontext()
+            with slot_ctx:
+                return _run_page_impl(idx, image_file)
+
+        def _run_page_impl(idx: int, image_file: Path) -> str:
             page_number = args.page_offset + idx
             stem = image_file.stem
             stage1_page_dir = stage1_dir / stem
