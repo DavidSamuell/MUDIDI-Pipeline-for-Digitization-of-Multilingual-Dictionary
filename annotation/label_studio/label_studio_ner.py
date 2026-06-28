@@ -110,6 +110,16 @@ def normalize_ls_task_dict(task: dict) -> dict:
     return normalized
 
 
+def has_submitted_human_annotation(task: dict) -> bool:
+    """True when *task* includes at least one full human annotation object.
+
+    Label Studio exports may list bare integer IDs under ``annotations`` when only
+    predictions exist; those stubs are stripped by :func:`normalize_ls_task_dict`.
+    """
+    normalized = normalize_ls_task_dict(task)
+    return bool(normalized.get("annotations"))
+
+
 # -- converters --------------------------------------------------------------------
 
 

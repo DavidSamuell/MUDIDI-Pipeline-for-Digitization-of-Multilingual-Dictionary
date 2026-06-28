@@ -31,7 +31,7 @@ from pydantic import ValidationError
 
 # Flat-sibling imports: add annotation/label_studio/ to path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from label_studio_ner import ls_task_to_page_map  # noqa: E402
+from label_studio_ner import has_submitted_human_annotation, ls_task_to_page_map  # noqa: E402
 from setup_ner_projects import _PROJECT_PREFIX, LabelStudioClient  # noqa: E402
 from span_schema import PageLanguageMap, SpanMapError, sha256_of  # noqa: E402
 
@@ -54,7 +54,7 @@ def page_map_from_task(task: dict) -> tuple[str, int, PageLanguageMap] | None:
     fields the import needs (``text``, ``language``, ``page_name``). The task's own
     ``data.text`` is the raw gold the regions index into, so no gold re-read is needed.
     """
-    if not task.get("annotations"):
+    if not has_submitted_human_annotation(task):
         return None
     data = task.get("data") or {}
     raw_text = data.get("text")

@@ -64,6 +64,13 @@ def test_page_map_from_task_none_without_annotation():
     assert page_map_from_task(task) is None
 
 
+def test_page_map_from_task_none_when_annotations_are_id_stubs():
+    # Label Studio export may list annotation IDs without embedding the objects.
+    task = page_map_to_ls_task(_canala_map(), SNIPPET)
+    task["annotations"] = [259]
+    assert page_map_from_task(task) is None
+
+
 def test_write_synced_map_new_then_unchanged(tmp_path):
     page_map = _canala_map()
     # First write creates the file.
