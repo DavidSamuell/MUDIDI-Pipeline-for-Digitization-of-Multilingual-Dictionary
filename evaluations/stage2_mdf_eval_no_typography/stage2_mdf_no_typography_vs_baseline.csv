@@ -1,0 +1,12 @@
+page_id,baseline_experiment,experiment,baseline_Record_Accuracy,Record_Accuracy,delta_Record_Accuracy,baseline_MDF_Fields_F1,MDF_Fields_F1,delta_MDF_Fields_F1,baseline_ReadOrderEdit,ReadOrderEdit,delta_ReadOrderEdit
+Chukchi-Russian/page_3,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.968153,1.0,0.031847,0.0,0.0,0.000000
+Circassian-English-Turkish/page_1,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,0.95,-0.050000,0.88,0.826291,-0.053709,0.0,0.05,0.050000
+Efik-English/page_13,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.842809,0.835017,-0.007792,0.0,0.0,0.000000
+Evenki-Russian/page_1,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,0.928571,0.964286,0.035715,0.732308,0.688347,-0.043961,0.071429,0.035714,-0.035715
+Greek-English/page_38,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.842105,0.811159,-0.030946,0.0,0.0,0.000000
+Iñupiatun Eskimo-English/page_42,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.992674,0.992674,0.000000,0.0,0.0,0.000000
+Kashmiri-English/page_14,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.501458,0.871345,0.369887,0.0,0.0,0.000000
+Na-English-Chinese-French/page_19,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.79476,0.760684,-0.034076,0.0,0.0,0.000000
+Nahuatl-French/page_74,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,0.935484,0.967742,0.032258,0.609756,0.613497,0.003741,0.064516,0.032258,-0.032258
+Tiri-English/page_15,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,1.0,1.0,0.000000,0.910798,0.930233,0.019435,0.0,0.0,0.000000
+__aggregate__,claudeopus47_high_mdf_intro_toolbox,claudeopus47_high_mdf_intro_toolbox_gold_notypography,0.988024,0.991018,0.002994,0.805732,0.831439,0.025707,0.013594,0.011797,-0.001797

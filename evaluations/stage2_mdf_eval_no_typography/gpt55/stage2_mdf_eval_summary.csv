@@ -1,0 +1,12 @@
+experiment,page_id,Record_Accuracy,MDF_Fields_F1,ReadOrderEdit
+gpt55_high_mdf_intro_toolbox_gold_notypography,Chukchi-Russian/page_3,1.0,1.0,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Circassian-English-Turkish/page_1,1.0,0.869955,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Efik-English/page_13,0.954545,0.880282,0.045455
+gpt55_high_mdf_intro_toolbox_gold_notypography,Evenki-Russian/page_1,0.964286,0.597403,0.035714
+gpt55_high_mdf_intro_toolbox_gold_notypography,Greek-English/page_38,1.0,0.962963,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Iñupiatun Eskimo-English/page_42,1.0,0.946043,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Kashmiri-English/page_14,1.0,0.629738,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Na-English-Chinese-French/page_19,1.0,0.806584,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,Nahuatl-French/page_74,0.967742,0.797721,0.032258
+gpt55_high_mdf_intro_toolbox_gold_notypography,Tiri-English/page_15,1.0,0.888889,0.0
+gpt55_high_mdf_intro_toolbox_gold_notypography,__aggregate__,0.991018,0.835233,0.011343

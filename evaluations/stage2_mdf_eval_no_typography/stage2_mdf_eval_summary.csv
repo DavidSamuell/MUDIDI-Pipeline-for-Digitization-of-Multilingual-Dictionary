@@ -1,0 +1,12 @@
+experiment,page_id,Record_Accuracy,MDF_Fields_F1,ReadOrderEdit
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Chukchi-Russian/page_3,1.0,1.0,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Circassian-English-Turkish/page_1,0.95,0.826291,0.05
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Efik-English/page_13,1.0,0.835017,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Evenki-Russian/page_1,0.964286,0.688347,0.035714
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Greek-English/page_38,1.0,0.811159,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Iñupiatun Eskimo-English/page_42,1.0,0.992674,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Kashmiri-English/page_14,1.0,0.871345,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Na-English-Chinese-French/page_19,1.0,0.760684,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Nahuatl-French/page_74,0.967742,0.613497,0.032258
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,Tiri-English/page_15,1.0,0.930233,0.0
+claudeopus47_high_mdf_intro_toolbox_gold_notypography,__aggregate__,0.991018,0.831439,0.011797
