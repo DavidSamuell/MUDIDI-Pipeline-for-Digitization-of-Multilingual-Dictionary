@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from mudidi.evaluation.stage1.stage1_metrics import CharacterQualityMetrics
+
 
 @dataclass
 class PrfCounts:
@@ -85,6 +87,16 @@ class MdfPageMetrics:
     record: PrfCounts = field(default_factory=PrfCounts)
     marker: PrfCounts = field(default_factory=PrfCounts)
     read_order: ReadOrderMetrics = field(default_factory=ReadOrderMetrics)
+    field_value_quality: CharacterQualityMetrics = field(
+        default_factory=CharacterQualityMetrics
+    )
+    headword_quality: CharacterQualityMetrics = field(
+        default_factory=CharacterQualityMetrics
+    )
+    gloss_quality: CharacterQualityMetrics = field(
+        default_factory=CharacterQualityMetrics
+    )
+    language_quality: Dict[str, CharacterQualityMetrics] = field(default_factory=dict)
     marker_confusion: Dict[str, Dict[str, int]] = field(default_factory=dict)
     record_samples: List[RecordSample] = field(default_factory=list)
     marker_error_samples: List[MarkerErrorSample] = field(default_factory=list)

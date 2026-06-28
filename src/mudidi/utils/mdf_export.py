@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _MDF_MARKER_LINE = re.compile(r"^\\(\w+)\s+(.*)$", re.UNICODE)
 _END_SENTENCE_PUNCT = frozenset(".!?")
+_MARKUP_TAG_RE = re.compile(r"</?[bi]>", re.IGNORECASE)
 
 IssueLevel = Literal["error", "warning"]
 
@@ -76,12 +77,23 @@ def strip_end_of_sentence_punctuation(text: str) -> str:
     return trimmed
 
 
+def strip_mdf_markup(value: str) -> str:
+    """Remove leaked ``<b>``/``<i>`` tags from an MDF field value."""
+    return _MARKUP_TAG_RE.sub("", value)
+
+
+def normalize_mdf_field_value(value: str) -> str:
+    """Strip markup and trailing sentence punctuation from one field value."""
+    return strip_end_of_sentence_punctuation(strip_mdf_markup(value))
+
+
 def normalize_mdf_text(mdf_text: str) -> str:
     """
     Post-process MDF text for Toolbox export.
 
-    Strips end-of-sentence punctuation from marker field values; MDF glosses and
-    definitions do not require trailing ``.``, ``!``, or ``?``.
+    Strips leaked typography markup and end-of-sentence punctuation from marker
+    field values; MDF glosses and definitions do not require trailing ``.``,
+    ``!``, or ``?``.
     """
     out_lines: List[str] = []
     for line in mdf_text.splitlines():
@@ -92,7 +104,7 @@ def normalize_mdf_text(mdf_text: str) -> str:
         match = _MDF_MARKER_LINE.match(stripped)
         if match:
             marker, value = match.groups()
-            out_lines.append(f"\\{marker} {strip_end_of_sentence_punctuation(value)}")
+            out_lines.append(f"\\{marker} {normalize_mdf_field_value(value)}")
         else:
             out_lines.append(stripped)
     return "\n".join(out_lines)

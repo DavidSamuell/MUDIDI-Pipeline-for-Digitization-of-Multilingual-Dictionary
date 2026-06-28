@@ -14,6 +14,12 @@ import Levenshtein
 
 from mudidi.evaluation.stage2.mdf_align import align_lines, align_records
 from mudidi.evaluation.stage2.mdf_marker_equiv import markers_equivalent
+from mudidi.evaluation.stage2.mdf_marker_roles import (
+    GLOSS_MARKERS,
+    HEADWORD_MARKERS,
+    load_language_map_for_page,
+    marker_role_bucket,
+)
 from mudidi.evaluation.stage2.mdf_metrics import (
     MarkerErrorSample,
     MdfPageMetrics,
@@ -22,7 +28,8 @@ from mudidi.evaluation.stage2.mdf_metrics import (
     RecordIndexSample,
     RecordSample,
 )
-from mudidi.evaluation.stage2.mdf_parser import parse_mdf
+from mudidi.evaluation.stage2.mdf_parser import parse_mdf, normalize_field_value
+from mudidi.evaluation.text_quality import aggregate_text_quality, merge_character_quality
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +74,14 @@ class MdfEvaluator:
         record_threshold: float = DEFAULT_RECORD_THRESHOLD,
         line_threshold: float = DEFAULT_LINE_THRESHOLD,
         marker_sub_list_path: str | Path | None = None,
+        dictionary_languages_path: str | Path | None = None,
     ) -> None:
         self.record_threshold = record_threshold
         self.line_threshold = line_threshold
         self.marker_sub_list_path = str(marker_sub_list_path) if marker_sub_list_path else None
+        self.dictionary_languages_path = (
+            Path(dictionary_languages_path) if dictionary_languages_path else None
+        )
 
     def evaluate(
         self,
@@ -96,6 +107,15 @@ class MdfEvaluator:
         confusion: DefaultDict[str, Counter[str]] = defaultdict(Counter)
         marker_errors: List[MarkerErrorSample] = []
         record_samples: List[RecordSample] = []
+        all_value_pairs: List[tuple[str, str]] = []
+        headword_pairs: List[tuple[str, str]] = []
+        gloss_pairs: List[tuple[str, str]] = []
+        language_pairs: DefaultDict[str, List[tuple[str, str]]] = defaultdict(list)
+
+        language_map = load_language_map_for_page(
+            pred_path,
+            dictionary_languages_path=self.dictionary_languages_path,
+        )
 
         for match in record_alignment.matched:
             gold_record = gold_records[match.gold_index]
@@ -109,6 +129,16 @@ class MdfEvaluator:
             for line_match in line_alignment.matched:
                 gold_line = gold_record.lines[line_match.gold_index]
                 pred_line = pred_record.lines[line_match.pred_index]
+                gold_value = normalize_field_value(gold_line.value)
+                pred_value = normalize_field_value(pred_line.value)
+                all_value_pairs.append((gold_value, pred_value))
+                if gold_line.marker in HEADWORD_MARKERS:
+                    headword_pairs.append((gold_value, pred_value))
+                if gold_line.marker in GLOSS_MARKERS:
+                    gloss_pairs.append((gold_value, pred_value))
+                bucket = marker_role_bucket(gold_line.marker, language_map)
+                if bucket:
+                    language_pairs[bucket].append((gold_value, pred_value))
                 if markers_equivalent(
                     gold_line.marker,
                     pred_line.marker,
@@ -154,6 +184,11 @@ class MdfEvaluator:
             len(gold_records),
         )
 
+        language_quality = {
+            bucket: aggregate_text_quality(pairs)
+            for bucket, pairs in sorted(language_pairs.items())
+        }
+
         return MdfPageMetrics(
             page_id=page_id or gold_path.parent.name,
             gold_path=str(gold_path),
@@ -166,6 +201,10 @@ class MdfEvaluator:
             ),
             marker=marker_counts,
             read_order=read_order,
+            field_value_quality=aggregate_text_quality(all_value_pairs),
+            headword_quality=aggregate_text_quality(headword_pairs),
+            gloss_quality=aggregate_text_quality(gloss_pairs),
+            language_quality=language_quality,
             marker_confusion={g: dict(c) for g, c in confusion.items()},
             record_samples=record_samples[:12],
             marker_error_samples=marker_errors,
@@ -212,7 +251,11 @@ class MdfEvaluator:
             available = sorted(
                 p.name for p in stage2_root.iterdir() if p.is_dir() and not p.name.startswith(".")
             )
-            exp_names = available if experiments is None else [e for e in experiments if e in available]
+            exp_names = (
+                available
+                if experiments is None
+                else [e for e in experiments if e in available]
+            )
             for exp in exp_names:
                 for gold_path in gold_paths:
                     stem = gold_path.parent.name
@@ -229,6 +272,90 @@ class MdfEvaluator:
                         )
                     )
         return tasks
+
+    @staticmethod
+    def discover_dataset_tasks(
+        dataset_dir: str | Path,
+        pred_root: str | Path,
+        experiments: Optional[List[str]] = None,
+        languages: Optional[List[str]] = None,
+    ) -> List[MdfEvalTask]:
+        """Discover gold/pred MDF pairs under the MUDIDI dataset layout.
+
+        Gold files are read from:
+            dataset_dir/<language>/Stage 2 MDF file/<page>/<page>.mdf.txt
+
+        Predictions are read from:
+            pred_root/<language>/stage-2/<experiment>/<page>/<page>.mdf.txt
+        """
+        dataset_dir = Path(dataset_dir)
+        pred_root = Path(pred_root)
+        tasks: List[MdfEvalTask] = []
+        selected_languages = set(languages) if languages else None
+
+        for lang_dir in sorted(p for p in dataset_dir.iterdir() if p.is_dir()):
+            if selected_languages and lang_dir.name not in selected_languages:
+                continue
+
+            gold_root = lang_dir / "Stage 2 MDF file"
+            stage2_root = pred_root / lang_dir.name / "stage-2"
+            if not gold_root.is_dir() or not stage2_root.is_dir():
+                continue
+
+            available = sorted(
+                p.name
+                for p in stage2_root.iterdir()
+                if p.is_dir() and not p.name.startswith(".")
+            )
+            exp_names = available if experiments is None else [e for e in experiments if e in available]
+            for exp in exp_names:
+                for gold_path in sorted(gold_root.glob("*/*.mdf.txt")):
+                    stem = gold_path.parent.name
+                    pred_path = stage2_root / exp / stem / f"{stem}.mdf.txt"
+                    if not pred_path.is_file():
+                        logger.debug("skip missing pred: %s", pred_path)
+                        continue
+                    tasks.append(
+                        MdfEvalTask(
+                            experiment=exp,
+                            pred_path=pred_path,
+                            gold_path=gold_path,
+                            page_id=f"{lang_dir.name}/{stem}",
+                        )
+                    )
+        return tasks
+
+    @staticmethod
+    def _quality_fields(prefix: str, quality: CharacterQualityMetrics) -> dict:
+        return {
+            f"{prefix}_TextEdit": round(quality.text_edit, 6),
+            f"{prefix}_GCER": round(quality.gcer, 6),
+            f"{prefix}_WER": round(quality.wer, 6),
+        }
+
+    @staticmethod
+    def _language_quality_columns(results: List[MdfPageMetrics]) -> List[str]:
+        buckets: set[str] = set()
+        for page in results:
+            buckets.update(page.language_quality.keys())
+        cols: List[str] = []
+        for bucket in sorted(buckets):
+            safe = bucket.replace(":", "_")
+            cols.extend([f"{safe}_GCER", f"{safe}_WER"])
+        return cols
+
+    @staticmethod
+    def _language_quality_row(page: MdfPageMetrics, columns: List[str]) -> dict:
+        row = {col: "" for col in columns}
+        for bucket, quality in page.language_quality.items():
+            safe = bucket.replace(":", "_")
+            gcer_col = f"{safe}_GCER"
+            wer_col = f"{safe}_WER"
+            if gcer_col in row:
+                row[gcer_col] = round(quality.gcer, 6)
+            if wer_col in row:
+                row[wer_col] = round(quality.wer, 6)
+        return row
 
     @staticmethod
     def metrics_to_dict(metrics: MdfPageMetrics) -> dict:
@@ -254,6 +381,17 @@ class MdfEvaluator:
                 "ReadOrderEdit": round(metrics.read_order.read_order_edit, 6),
                 "edit_distance": metrics.read_order.edit_distance,
                 "max_length": metrics.read_order.max_length,
+            },
+            "field_value_quality": MdfEvaluator._quality_fields(
+                "FieldValue", metrics.field_value_quality
+            ),
+            "headword_quality": MdfEvaluator._quality_fields(
+                "Headword", metrics.headword_quality
+            ),
+            "gloss_quality": MdfEvaluator._quality_fields("Gloss", metrics.gloss_quality),
+            "language_quality": {
+                bucket: MdfEvaluator._quality_fields(bucket.replace(":", "_"), q)
+                for bucket, q in metrics.language_quality.items()
             },
             "marker_confusion": metrics.marker_confusion,
             "record_samples": [asdict(s) for s in metrics.record_samples],
@@ -297,6 +435,9 @@ class MdfEvaluator:
                     f"  Record Accuracy: {agg['Record_Accuracy']:.4f}",
                     f"  MDF Fields F1:   {agg['MDF_Fields_F1']:.4f}",
                     f"  ReadOrderEdit:   {agg['read_order']['ReadOrderEdit']:.4f}",
+                    f"  Field Value GCER:{agg['Field_Value_GCER']:.4f}",
+                    f"  Headword GCER:   {agg['Headword_GCER']:.4f}",
+                    f"  Gloss GCER:     {agg['Gloss_GCER']:.4f}",
                     "",
                 ]
             )
@@ -306,54 +447,74 @@ class MdfEvaluator:
         return report
 
     def generate_summary_csv(self, results_by_exp: Dict[str, List[MdfPageMetrics]], output_path: Path) -> None:
+        all_pages = [page for pages in results_by_exp.values() for page in pages]
+        language_cols = self._language_quality_columns(all_pages)
+        base_fields = [
+            "experiment",
+            "page_id",
+            "Record_Accuracy",
+            "MDF_Fields_F1",
+            "ReadOrderEdit",
+            "Field_Value_GCER",
+            "Field_Value_WER",
+            "Headword_GCER",
+            "Gloss_GCER",
+            *language_cols,
+        ]
         rows: List[dict] = []
         for exp, pages in results_by_exp.items():
             for page in pages:
-                rows.append(
-                    {
-                        "experiment": exp,
-                        "page_id": page.page_id,
-                        "Record_Accuracy": round(page.record_accuracy, 6),
-                        "MDF_Fields_F1": round(page.mdf_fields_f1, 6),
-                        "ReadOrderEdit": round(page.read_order.read_order_edit, 6),
-                    }
-                )
+                row = {
+                    "experiment": exp,
+                    "page_id": page.page_id,
+                    "Record_Accuracy": round(page.record_accuracy, 6),
+                    "MDF_Fields_F1": round(page.mdf_fields_f1, 6),
+                    "ReadOrderEdit": round(page.read_order.read_order_edit, 6),
+                    "Field_Value_GCER": round(page.field_value_quality.gcer, 6),
+                    "Field_Value_WER": round(page.field_value_quality.wer, 6),
+                    "Headword_GCER": round(page.headword_quality.gcer, 6),
+                    "Gloss_GCER": round(page.gloss_quality.gcer, 6),
+                    **self._language_quality_row(page, language_cols),
+                }
+                rows.append(row)
             if len(pages) > 1:
                 agg = self._aggregate_dict(pages)
-                rows.append(
-                    {
-                        "experiment": exp,
-                        "page_id": "__aggregate__",
-                        "Record_Accuracy": agg["Record_Accuracy"],
-                        "MDF_Fields_F1": agg["MDF_Fields_F1"],
-                        "ReadOrderEdit": agg["read_order"]["ReadOrderEdit"],
-                    }
-                )
+                row = {
+                    "experiment": exp,
+                    "page_id": "__aggregate__",
+                    "Record_Accuracy": agg["Record_Accuracy"],
+                    "MDF_Fields_F1": agg["MDF_Fields_F1"],
+                    "ReadOrderEdit": agg["read_order"]["ReadOrderEdit"],
+                    "Field_Value_GCER": agg["Field_Value_GCER"],
+                    "Field_Value_WER": agg["Field_Value_WER"],
+                    "Headword_GCER": agg["Headword_GCER"],
+                    "Gloss_GCER": agg["Gloss_GCER"],
+                }
+                for col in language_cols:
+                    row[col] = agg.get(col, "")
+                rows.append(row)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(
-                handle,
-                fieldnames=[
-                    "experiment",
-                    "page_id",
-                    "Record_Accuracy",
-                    "MDF_Fields_F1",
-                    "ReadOrderEdit",
-                ],
-            )
+            writer = csv.DictWriter(handle, fieldnames=base_fields)
             writer.writeheader()
             writer.writerows(rows)
 
     @staticmethod
     def _format_page(metrics: MdfPageMetrics) -> List[str]:
-        return [
+        lines = [
             f"--- {metrics.page_id} ---",
             f"  Records: matched={metrics.record.tp} missing={metrics.record.fn} "
             f"extra={metrics.record.fp} (pred={metrics.n_pred_records})",
             f"  Record Accuracy: {metrics.record_accuracy:.4f}",
             f"  MDF Fields F1:   {metrics.mdf_fields_f1:.4f}",
             f"  ReadOrderEdit:   {metrics.read_order.read_order_edit:.4f}",
+            f"  Field Value GCER:{metrics.field_value_quality.gcer:.4f}",
+            f"  Headword GCER:   {metrics.headword_quality.gcer:.4f}",
+            f"  Gloss GCER:     {metrics.gloss_quality.gcer:.4f}",
         ]
+        for bucket, quality in sorted(metrics.language_quality.items()):
+            lines.append(f"  {bucket} GCER:       {quality.gcer:.4f}")
+        return lines
 
     @staticmethod
     def _aggregate_dict(results: List[MdfPageMetrics]) -> dict:
@@ -374,10 +535,31 @@ class MdfEvaluator:
             2 * marker_p * marker_r / (marker_p + marker_r) if (marker_p + marker_r) else 0.0
         )
 
-        return {
+        field_q = merge_character_quality([m.field_value_quality for m in results])
+        headword_q = merge_character_quality([m.headword_quality for m in results])
+        gloss_q = merge_character_quality([m.gloss_quality for m in results])
+
+        agg: dict = {
             "Record_Accuracy": round(record_accuracy, 6),
             "MDF_Fields_F1": round(mdf_fields_f1, 6),
             "record_counts": {"tp": record_tp, "fp": record_fp, "fn": record_fn},
             "marker_counts": {"tp": marker_tp, "fp": marker_fp, "fn": marker_fn},
             "read_order": {"ReadOrderEdit": round(ro_edit, 6)},
+            "Field_Value_GCER": round(field_q.gcer, 6),
+            "Field_Value_WER": round(field_q.wer, 6),
+            "Headword_GCER": round(headword_q.gcer, 6),
+            "Gloss_GCER": round(gloss_q.gcer, 6),
         }
+
+        lang_buckets: set[str] = set()
+        for page in results:
+            lang_buckets.update(page.language_quality.keys())
+        for bucket in sorted(lang_buckets):
+            safe = bucket.replace(":", "_")
+            merged = merge_character_quality(
+                [page.language_quality[bucket] for page in results if bucket in page.language_quality]
+            )
+            agg[f"{safe}_GCER"] = round(merged.gcer, 6)
+            agg[f"{safe}_WER"] = round(merged.wer, 6)
+
+        return agg
