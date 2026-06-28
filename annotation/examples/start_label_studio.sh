@@ -1,50 +1,147 @@
 #!/usr/bin/env bash
 #
-# Start the Label Studio dashboard for reviewing the gold language NER drafts
-# (the *_lang.json maps under annotation/outputs/, imported as NER tasks).
+# Start Label Studio and import all NER language-span projects automatically.
 #
-# Label Studio is NOT a project dependency, so this prefers a `label-studio`
-# already on your PATH and otherwise runs it ephemerally via `uvx` (uv's tool
-# runner; the first run downloads it). Open http://localhost:8080 when it boots.
+# On first run: Label Studio opens in your browser — create an account, then
+# visit http://localhost:8080/user/account to copy your API token. The script
+# will prompt you for it once and save it to $TOKEN_FILE for future runs.
+#
+# On subsequent runs: projects are skipped if they already exist (idempotent).
+# Pass OVERWRITE=1 to delete and recreate all projects.
 #
 # Usage:
 #   bash annotation/examples/start_label_studio.sh
 #   PORT=9000 bash annotation/examples/start_label_studio.sh
+#   OVERWRITE=1 bash annotation/examples/start_label_studio.sh
 #
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
 
 HOST="${HOST:-localhost}"
 PORT="${PORT:-8080}"
+LS_URL="http://$HOST:$PORT"
+OVERWRITE="${OVERWRITE:-0}"
 
-# Keep Label Studio's SQLite DB + uploads OUT of the repo.
+# Label Studio data dir (SQLite DB + uploads) — kept outside the repo.
 export LABEL_STUDIO_BASE_DATA_DIR="${LABEL_STUDIO_BASE_DATA_DIR:-$HOME/.label-studio-mudidi}"
 mkdir -p "$LABEL_STUDIO_BASE_DATA_DIR"
 
-# Let Label Studio serve the raw gold text files from local disk (the repo) so
-# tasks can reference them instead of inlining every page.
+# Serve local gold text files so tasks can reference the repo directly.
 export LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED="${LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED:-true}"
 export LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT="${LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT:-$REPO_ROOT}"
 
-cat <<EOF
-Starting Label Studio
-  url        : http://$HOST:$PORT
-  data dir   : $LABEL_STUDIO_BASE_DATA_DIR
-  files root : $LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT
+TOKEN_FILE="$LABEL_STUDIO_BASE_DATA_DIR/.token"
 
-Next steps once it is open:
-  1. Create (or sign in to) an account and a new project.
-  2. Settings > Labeling Interface: paste the per-dictionary NER config produced by
-     annotation/label_studio/label_studio_ner.build_labels_config(<languages>).
-  3. Import that dictionary's NER tasks (built from annotation/outputs/<dict>/*_lang.json).
-  4. After review, export with: uv run python scripts/export_label_studio_gold.py
-     (reads LABEL_STUDIO_URL / LABEL_STUDIO_TOKEN).
-EOF
-echo
-
+# ---------------------------------------------------------------------------
+# 1. Start Label Studio in the background.
+# ---------------------------------------------------------------------------
 if command -v label-studio >/dev/null 2>&1; then
-  exec label-studio start --host "$HOST" --port "$PORT"
+  LS_CMD="label-studio"
 else
-  echo "label-studio not on PATH — launching via 'uvx label-studio' (first run downloads it)…"
-  exec uvx label-studio start --host "$HOST" --port "$PORT"
+  LS_CMD="uvx label-studio"
+  echo "label-studio not on PATH — using 'uvx label-studio' (downloads on first run)…"
 fi
+
+echo "Starting Label Studio at $LS_URL …"
+$LS_CMD start --host "$HOST" --port "$PORT" &
+LS_PID=$!
+
+# Ensure we kill LS if the script is interrupted before we exec-wait below.
+trap 'kill $LS_PID 2>/dev/null; exit' INT TERM
+
+# ---------------------------------------------------------------------------
+# 2. Wait for Label Studio to be ready.
+# ---------------------------------------------------------------------------
+echo -n "Waiting for Label Studio to be ready"
+for i in $(seq 1 60); do
+  if curl -sf "$LS_URL/health" >/dev/null 2>&1; then
+    echo " ready."
+    break
+  fi
+  echo -n "."
+  sleep 2
+  if [ "$i" -eq 60 ]; then
+    echo ""
+    echo "ERROR: Label Studio did not start within 120 s. Check for port conflicts."
+    kill $LS_PID 2>/dev/null
+    exit 1
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 3. Resolve the API token (env var > .env file > saved file > prompt).
+# ---------------------------------------------------------------------------
+# Load LS_ACCESS_TOKEN / LABEL_STUDIO_TOKEN from the repo .env if present.
+if [ -f "$REPO_ROOT/.env" ]; then
+  while IFS='=' read -r key val; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    val="${val%\"}"
+    val="${val#\"}"
+    val="${val%\'}"
+    val="${val#\'}"
+    export "$key=$val" 2>/dev/null || true
+  done < "$REPO_ROOT/.env"
+fi
+
+if [ -n "${LABEL_STUDIO_TOKEN:-}" ]; then
+  TOKEN="$LABEL_STUDIO_TOKEN"
+  echo "Using token from LABEL_STUDIO_TOKEN env var."
+elif [ -n "${LS_ACCESS_TOKEN:-}" ]; then
+  TOKEN="$LS_ACCESS_TOKEN"
+  echo "Using PAT from LS_ACCESS_TOKEN (.env)."
+elif [ -f "$TOKEN_FILE" ]; then
+  TOKEN="$(cat "$TOKEN_FILE")"
+  echo "Using saved token from $TOKEN_FILE"
+else
+  echo ""
+  echo "─────────────────────────────────────────────────────────"
+  echo "  First-time setup: Label Studio needs an API token."
+  echo ""
+  echo "  1. Open $LS_URL in your browser."
+  echo "  2. Create an account (or sign in)."
+  echo "  3. Go to $LS_URL/user/account"
+  echo "  4. Copy your API Token."
+  echo "─────────────────────────────────────────────────────────"
+  echo -n "Paste your Label Studio API token here and press Enter: "
+  read -r TOKEN
+  if [ -z "$TOKEN" ]; then
+    echo "No token entered — skipping project import. Projects can be imported later with:"
+    echo "  uv run python annotation/label_studio/setup_ner_projects.py --ls-token <token>"
+    echo ""
+    echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+    wait $LS_PID
+    exit 0
+  fi
+  echo "$TOKEN" > "$TOKEN_FILE"
+  echo "Token saved to $TOKEN_FILE (delete this file to re-enter it)."
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Import all NER projects (idempotent — existing projects are skipped).
+# ---------------------------------------------------------------------------
+echo ""
+overwrite_flag=""
+[ "$OVERWRITE" = "1" ] && overwrite_flag="--overwrite"
+
+if ! uv run python annotation/label_studio/setup_ner_projects.py \
+  --ls-url "$LS_URL" \
+  --ls-token "$TOKEN" \
+  --outputs-root "annotation/outputs" \
+  --dictionaries-root "dataset/MUDIDI/dictionaries" \
+  $overwrite_flag; then
+  # Auth likely failed — remove the saved token so next run re-prompts.
+  if [ -f "$TOKEN_FILE" ] && [ "$TOKEN" = "$(cat "$TOKEN_FILE")" ]; then
+    rm -f "$TOKEN_FILE"
+    echo "Removed stale token from $TOKEN_FILE — re-run to enter a fresh token."
+  fi
+fi
+
+echo ""
+echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+
+# ---------------------------------------------------------------------------
+# 5. Keep Label Studio in the foreground.
+# ---------------------------------------------------------------------------
+wait $LS_PID

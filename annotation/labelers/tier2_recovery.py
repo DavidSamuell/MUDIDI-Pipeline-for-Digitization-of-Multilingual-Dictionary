@@ -50,6 +50,19 @@ class Tier2DriftError(ValueError):
     """Raised when de-tagged LLM output drifts from the gold beyond tolerance."""
 
 
+def detect_markup_tags(raw_gold: str) -> frozenset:
+    """Return all tag names found in ``raw_gold`` as a markup (content) set.
+
+    Any tag-like token that already exists in the raw gold text (e.g. ``<span>``)
+    is CONTENT, not a language wrapper — it must survive the LLM round-trip verbatim.
+    This auto-detection avoids hard-coding per-dictionary markup lists.
+    ISO 639-3 codes the LLM adds only ever appear in the *output*, never in the raw
+    gold, so there is no risk of accidentally treating a language tag as markup.
+    """
+    names = {m.group(1).lower() for m in _TAG.finditer(raw_gold)}
+    return DEFAULT_MARKUP_TAGS | names
+
+
 def parse_tagged(
     tagged: str,
     markup_tags: Set[str] | frozenset = DEFAULT_MARKUP_TAGS,

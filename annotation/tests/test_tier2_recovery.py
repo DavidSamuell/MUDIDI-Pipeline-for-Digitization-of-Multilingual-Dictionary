@@ -12,7 +12,12 @@ from tier2_labeler import (  # noqa: E402
     label_dictionary,
     read_language_seed,
 )
-from tier2_recovery import Tier2DriftError, parse_tagged, recover_page_map  # noqa: E402
+from tier2_recovery import (  # noqa: E402
+    Tier2DriftError,
+    detect_markup_tags,
+    parse_tagged,
+    recover_page_map,
+)
 
 from mudidi.schemas.language_span import SPACE  # noqa: E402
 
@@ -107,6 +112,19 @@ def test_ner_round_trip_is_lossless():
     assert rebuilt.canonical().spans == pm.canonical().spans
 
 
+def test_span_tags_in_gold_treated_as_content():
+    # <span> appears in the Nahuatl-French gold as literal content (not a language).
+    # detect_markup_tags must include it so parse_tagged preserves it verbatim.
+    raw = "<span>CENTLACOL</span> or something\n"
+    markup = detect_markup_tags(raw)
+    assert "span" in markup
+    tagged = "<fra><span>CENTLACOL</span></fra> <fra>or something</fra>\n"
+    pm, used, drift = recover_page_map(raw, tagged, dictionary="Nahuatl-French", page=74,
+                                       markup_tags=markup, code_to_language={"fra": "French"})
+    assert drift == 0.0
+    pm.validate_against(raw)
+
+
 def test_parse_tagged_stray_close_ignored():
     text, langs, used = parse_tagged("<English>hi</English></French>!")
     assert text == "hi!"
@@ -162,8 +180,8 @@ def test_label_dictionary_continues_past_failed_page(tmp_path, monkeypatch):
         tmp_path, {1: "akɔɔtee small\n", 2: "amãrɛ crab\n"}
     )
 
-    def fake_llm(*, model, messages, reasoning_effort, max_tokens):
-        prompt = messages[0]["content"]
+    def fake_llm(**kwargs):
+        prompt = kwargs["messages"][0]["content"]
         if "akɔɔtee" in prompt:
             return "<Canala>akɔɔtee</Canala> <English>small</English>\n", {}
         return "<English>completely unrelated replacement sentence</English>\n", {}

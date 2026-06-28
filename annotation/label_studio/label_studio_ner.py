@@ -95,6 +95,21 @@ class NerTask(BaseModel):
     annotations: List[NerPrediction] = Field(default_factory=list)
 
 
+def normalize_ls_task_dict(task: dict) -> dict:
+    """Return a copy of *task* safe for :class:`NerTask` validation.
+
+    Label Studio's export API may serialize ``predictions`` (and occasionally
+    ``annotations``) as bare integer IDs rather than full objects. Drop any
+    non-dict entries so validation and import can proceed.
+    """
+    normalized = dict(task)
+    for key in ("predictions", "annotations"):
+        items = normalized.get(key)
+        if isinstance(items, list):
+            normalized[key] = [item for item in items if isinstance(item, dict)]
+    return normalized
+
+
 # -- converters --------------------------------------------------------------------
 
 
@@ -161,7 +176,10 @@ def ls_task_to_page_map(
         SpanMapError: if a region's ``value.text`` does not match the gold slice, or
             if regions overlap, or the rebuilt map fails its invariants.
     """
-    parsed = task if isinstance(task, NerTask) else NerTask.model_validate(task)
+    if isinstance(task, NerTask):
+        parsed = task
+    else:
+        parsed = NerTask.model_validate(normalize_ls_task_dict(task))
     spans: List[LanguageSpan] = []
     for result in _latest_results(parsed):
         if result.type != LABELS_TYPE or not result.value.labels:
@@ -214,21 +232,73 @@ def _fill_gaps(spans: List[LanguageSpan], length: int) -> List[LanguageSpan]:
 
 # -- labelling config / label set --------------------------------------------------
 
+# Distinct, high-contrast label colours so adjacent languages never share a hue
+# (Label Studio's auto-assignment collides — e.g. Canala and META both rendering pink).
+# Languages are coloured in order from this palette; META is always a neutral grey so it
+# reads as "not a language". 14 hues cover the largest dictionary (max ~9 languages).
+_LABEL_PALETTE = (
+    "#4363D8",  # blue
+    "#3CB44B",  # green
+    "#F58231",  # orange
+    "#911EB4",  # purple
+    "#E6194B",  # red
+    "#469990",  # teal
+    "#F032E6",  # magenta
+    "#9A6324",  # brown
+    "#808000",  # olive
+    "#000075",  # navy
+    "#42D4F4",  # cyan
+    "#BFEF45",  # lime
+    "#FABED4",  # pink
+    "#A9A9A9",  # slate
+)
+_META_COLOR = "#7A7A7A"  # neutral grey — META is an editorial marker, not a language
 
-def build_labels_config(languages: List[str]) -> str:
+
+def _label_color(name: str, index: int) -> str:
+    """Return a stable, distinct background colour for a label."""
+    if name == META:
+        return _META_COLOR
+    return _LABEL_PALETTE[index % len(_LABEL_PALETTE)]
+
+
+def build_labels_config(languages: List[str], *, image: bool = False) -> str:
     """Return the Label Studio labelling-interface XML for an NER project.
 
     The label set is the dictionary's languages plus ``META`` (markers). ``SPACE`` is
-    never a UI label -- it is the implicit, unlabelled background.
+    never a UI label -- it is the implicit, unlabelled background. Each label is given a
+    distinct ``background`` colour from ``_LABEL_PALETTE`` so no two share a hue.
+
+    When ``image`` is True, the original dictionary page render is shown side-by-side
+    as a read-only reference, bound to the task's ``$image_url`` field. Tasks built
+    without an ``image_url`` should use ``image=False`` to avoid a broken image panel.
     """
     label_set = list(dict.fromkeys([*languages, META]))
-    labels_xml = "\n".join(f'    <Label value="{name}"/>' for name in label_set)
+    labels_xml = "\n".join(
+        f'      <Label value="{name}" background="{_label_color(name, i)}"/>'
+        for i, name in enumerate(label_set)
+    )
+    labels_block = (
+        f'    <Labels name="{FROM_NAME}" toName="{TO_NAME}">\n'
+        f"{labels_xml}\n"
+        "    </Labels>\n"
+        f'    <Text name="{TO_NAME}" value="$text"/>\n'
+    )
+    if not image:
+        return f"<View>\n{labels_block}</View>\n"
+    # Two-panel layout: original page render (left) | NER text + labels (right).
     return (
         "<View>\n"
-        f'  <Labels name="{FROM_NAME}" toName="{TO_NAME}">\n'
-        f"{labels_xml}\n"
-        "  </Labels>\n"
-        f'  <Text name="{TO_NAME}" value="$text"/>\n'
+        '  <View style="display: flex; gap: 1em;">\n'
+        '    <View style="flex: 1; max-width: 45%;">\n'
+        '      <Header value="Original dictionary page"/>\n'
+        '      <Image name="page" value="$image_url" '
+        'zoomControl="true" rotateControl="true"/>\n'
+        "    </View>\n"
+        '    <View style="flex: 1;">\n'
+        f"{labels_block}"
+        "    </View>\n"
+        "  </View>\n"
         "</View>\n"
     )
 

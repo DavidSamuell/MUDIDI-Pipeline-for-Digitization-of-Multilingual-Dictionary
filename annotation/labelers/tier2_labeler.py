@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,7 +41,7 @@ from tier1_labeler import (  # noqa: E402  (flat sibling import; reuse discovery
     _lang_map_path,
     _page_number,
 )
-from tier2_recovery import recover_page_map  # noqa: E402
+from tier2_recovery import detect_markup_tags, recover_page_map  # noqa: E402
 
 from mudidi.llm.client import complete_with_usage  # noqa: E402
 from mudidi.schemas.language_span import META, PageLanguageMap  # noqa: E402
@@ -90,15 +91,30 @@ def read_language_seed(dictionary_dir: str | Path) -> List[str]:
     return list(dict.fromkeys(seed))
 
 
-def build_prompt(raw_gold: str, seed_languages: List[str]) -> str:
+def build_prompt(
+    raw_gold: str,
+    seed_languages: List[str],
+    markup_tags: frozenset = frozenset({"b", "i"}),
+) -> str:
     """Assemble the ISO-code tag-injection instruction for one raw gold page.
 
     The model first declares a legend of ISO 639-3 codes for every language it sees,
     then re-emits the page wrapping each run in ``<code>`` tags. Codes (short, ASCII,
     no spaces) sidestep the multi-word-name tag-parsing failures that full names like
     ``Iñupiatun Eskimo`` caused, and the legend lets recovery map codes back to names.
+
+    ``markup_tags`` lists tag names already present in the raw gold that the model must
+    treat as literal content characters, not as markup to remove (e.g. ``<span>``).
     """
     languages = ", ".join(seed_languages)
+    extra = sorted(markup_tags - {"b", "i"})
+    preserve_note = ""
+    if extra:
+        tags_str = ", ".join(f"<{t}>...</{t}>" for t in extra)
+        preserve_note = (
+            f" Also keep {tags_str} exactly as they appear — "
+            "they are content characters, not markup to remove."
+        )
     return (
         "You are labeling the language of every part of one OCR'd dictionary page.\n\n"
         "STEP 1 — Identify every distinct language that appears anywhere on the page "
@@ -120,7 +136,7 @@ def build_prompt(raw_gold: str, seed_languages: List[str]) -> str:
         "2. Use ONLY lowercase ISO 639-3 codes as tag names (e.g. <fra>, <rus>, "
         "<ike>); never use a language's full name as a tag.\n"
         "3. Keep existing <b>...</b> and <i>...</i> typography markup exactly as it "
-        "appears, as part of the wrapped text (do not treat it as a language).\n"
+        f"appears, as part of the wrapped text (do not treat it as a language).{preserve_note}\n"
         "4. Preserve all whitespace and line breaks exactly.\n"
         "5. Output ONLY the LANGUAGES: block then the TAGGED: block — no commentary "
         "and no code fences.\n\n"
@@ -160,7 +176,7 @@ def parse_llm_output(text: str) -> Tuple[Dict[str, str], str]:
     if not marker:
         return {}, stripped
     legend_block = _LANGUAGES_MARKER.sub("", stripped[: marker.start()])
-    tagged = stripped[marker.end():]
+    tagged = stripped[marker.end() :]
     code_to_language: Dict[str, str] = {}
     for line in legend_block.splitlines():
         match = _LEGEND_LINE.match(line)
@@ -178,6 +194,8 @@ def label_page(
     model: str = DEFAULT_MODEL,
     reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    temperature: float = 0.1,
+    max_drift: float = 0.02,
 ) -> Tuple[PageLanguageMap, List[str], float, Dict[str, Any]]:
     """Label one raw gold page via the LLM and deterministic recovery.
 
@@ -187,12 +205,14 @@ def label_page(
         Tier2DriftError: if the de-tagged LLM output drifts from the gold too far.
         SpanMapError: if the recovered map fails its invariants.
     """
-    prompt = build_prompt(raw_gold, seed_languages)
+    markup_tags = detect_markup_tags(raw_gold)
+    prompt = build_prompt(raw_gold, seed_languages, markup_tags=markup_tags)
     text, usage = complete_with_usage(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         reasoning_effort=reasoning_effort,
         max_tokens=max_tokens,
+        temperature=temperature,
     )
     code_to_language, tagged = parse_llm_output(text)
     page_map, used, drift = recover_page_map(
@@ -200,7 +220,9 @@ def label_page(
         tagged,
         dictionary=dictionary,
         page=page,
+        markup_tags=markup_tags,
         code_to_language=code_to_language,
+        max_drift=max_drift,
     )
     return page_map, used, drift, usage
 
@@ -211,9 +233,12 @@ def label_dictionary(
     model: str = DEFAULT_MODEL,
     reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    temperature: float = 0.1,
+    max_drift: float = 0.15,
     limit: Optional[int] = None,
     skip_existing: bool = True,
     output_root: str | Path = OUTPUT_ROOT,
+    batch_size: int = 1,
 ) -> List[PageResult]:
     """Label gold pages of a Tier-2 dictionary, one :class:`PageResult` per page.
 
@@ -223,6 +248,11 @@ def label_dictionary(
     the run. By default (``skip_existing=True``) a page whose ``*_lang.json`` already
     exists is returned as ``"skipped"`` without an LLM call; pass ``skip_existing=
     False`` (CLI ``--overwrite``) to re-label it.
+
+    ``batch_size`` controls how many pages are labeled concurrently via a thread pool
+    (each thread makes an independent ``litellm.completion`` call). The global rate-limit
+    pause in ``llm/client.py`` is shared across threads, matching the main pipeline
+    behaviour.
     """
     dictionary_dir = Path(dictionary_dir)
     dictionary = dictionary_dir.name
@@ -230,13 +260,12 @@ def label_dictionary(
     pages = discover_gold_pages(dictionary_dir)
     if limit is not None:
         pages = pages[:limit]
-    results: List[PageResult] = []
-    for gold_path in pages:
+
+    def _process(gold_path: Path) -> PageResult:
         page = _page_number(gold_path)
         out_path = _lang_map_path(gold_path, output_root)
         if skip_existing and out_path.is_file():
-            results.append(PageResult(gold_path, page, out_path, status="skipped"))
-            continue
+            return PageResult(gold_path, page, out_path, status="skipped")
         raw_gold = gold_path.read_text(encoding="utf-8")
         try:
             page_map, used, drift, _usage = label_page(
@@ -247,30 +276,33 @@ def label_dictionary(
                 model=model,
                 reasoning_effort=reasoning_effort,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                max_drift=max_drift,
             )
-        except Exception as exc:  # noqa: BLE001 -- one bad page must not abort the batch
-            results.append(
-                PageResult(
-                    gold_path,
-                    page,
-                    out_path,
-                    status="failed",
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            )
-            continue
-        results.append(
-            PageResult(
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 -- one bad page must not abort the batch
+            return PageResult(
                 gold_path,
                 page,
                 out_path,
-                status="ok",
-                page_map=page_map,
-                used=used,
-                drift=drift,
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
             )
+        return PageResult(
+            gold_path,
+            page,
+            out_path,
+            status="ok",
+            page_map=page_map,
+            used=used,
+            drift=drift,
         )
-    return results
+
+    if batch_size > 1:
+        with ThreadPoolExecutor(max_workers=batch_size) as pool:
+            return list(pool.map(_process, pages))
+    return [_process(p) for p in pages]
 
 
 def tier2_dictionaries(dictionaries_root: str | Path) -> List[str]:
@@ -309,6 +341,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         choices=("none", "low", "medium", "high"),
     )
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.1,
+        help="Sampling temperature (default: 0.1). Ignored for Gemini 3+ "
+        "(locked to 1.0 by litellm) and GPT-5 family (locked to 1.0).",
+    )
+    parser.add_argument(
+        "--max-drift",
+        type=float,
+        default=0.15,
+        dest="max_drift",
+        help="Max tolerated character drift between de-tagged LLM output and gold "
+        "(default: 0.15). Recovery always uses original gold characters; drift only "
+        "affects language attribution accuracy. Pages above this are flagged for manual labeling.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        dest="batch_size",
+        help="Concurrent page workers per dictionary (default: 1). "
+        "Uses a thread pool over separate litellm.completion calls — not a "
+        "provider batch-API flag. The global rate-limit pause is shared across threads.",
+    )
     parser.add_argument(
         "--limit", type=int, default=None, help="Max pages per dictionary (smoke test)."
     )
@@ -352,7 +409,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 continue
             raw = pages[0].read_text(encoding="utf-8")
             print(f"\n===== {name} (seed: {', '.join(seed)}) =====")
-            print(build_prompt(raw, seed))
+            print(build_prompt(raw, seed, markup_tags=detect_markup_tags(raw)))
             continue
         print(f"\n===== {name} (seed: {', '.join(seed)}) =====")
         for result in label_dictionary(
@@ -360,14 +417,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            max_drift=args.max_drift,
             limit=args.limit,
             skip_existing=not args.overwrite,
             output_root=args.output_root,
+            batch_size=args.batch_size,
         ):
             if result.status == "skipped":
                 skipped += 1
-                print(f"  [skip] {name} :: page {result.page} exists "
-                      f"-> {result.out_path.name}")
+                print(
+                    f"  [skip] {name} :: page {result.page} exists "
+                    f"-> {result.out_path.name}"
+                )
                 continue
             if result.status == "failed":
                 failures.append((name, result.page, result.error or ""))

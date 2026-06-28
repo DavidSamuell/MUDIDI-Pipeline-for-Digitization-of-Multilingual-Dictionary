@@ -8,6 +8,7 @@ from label_studio_ner import (  # noqa: E402  (flat import; see annotation/tests
     build_labels_config,
     load_label_set,
     ls_task_to_page_map,
+    normalize_ls_task_dict,
     page_map_to_ls_task,
 )
 from span_schema import (  # noqa: E402
@@ -61,6 +62,34 @@ def test_round_trip_is_identity_up_to_canonical():
     assert rebuilt.canonical().spans == page_map.canonical().spans
 
 
+def test_ls_task_to_page_map_tolerates_prediction_ids_from_export():
+    """Label Studio export may return predictions as bare integer IDs."""
+    page_map = _canala_map()
+    task = page_map_to_ls_task(page_map, SNIPPET)
+    task["predictions"] = [259]  # PrimaryKeyRelatedField stub from export API
+    task["annotations"] = [
+        {
+            "result": [
+                {
+                    "from_name": "label",
+                    "to_name": "text",
+                    "type": "labels",
+                    "value": {"start": 0, "end": 7, "text": "akɔɔtee", "labels": ["English"]},
+                }
+            ]
+        }
+    ]
+    rebuilt = ls_task_to_page_map(task, SNIPPET, dictionary="Canala-English", page=12)
+    assert rebuilt.language_char_map(SNIPPET)[0] == "English"
+
+
+def test_normalize_ls_task_dict_filters_non_dict_entries():
+    raw = {"predictions": [259, {"result": []}], "annotations": [42]}
+    normalized = normalize_ls_task_dict(raw)
+    assert normalized["predictions"] == [{"result": []}]
+    assert normalized["annotations"] == []
+
+
 def test_annotation_overrides_prediction():
     page_map = _canala_map()
     task = page_map_to_ls_task(page_map, SNIPPET)
@@ -90,11 +119,33 @@ def test_tampered_region_text_raises():
 
 def test_build_labels_config_lists_languages_and_meta():
     config = build_labels_config(["Canala", "English"])
-    assert '<Label value="Canala"/>' in config
-    assert '<Label value="English"/>' in config
-    assert f'<Label value="{META}"/>' in config
+    assert '<Label value="Canala"' in config
+    assert '<Label value="English"' in config
+    assert f'<Label value="{META}"' in config
     assert 'toName="text"' in config
     assert 'value="$text"' in config
+    # Default config has no image panel.
+    assert "<Image" not in config
+
+
+def test_build_labels_config_assigns_distinct_colors():
+    import re
+
+    config = build_labels_config(["Canala", "English"])
+    colors = re.findall(r'<Label value="[^"]+" background="([^"]+)"', config)
+    # Every label (Canala, English, META) gets a colour, and none collide.
+    assert len(colors) == 3
+    assert len(set(colors)) == 3
+
+
+def test_build_labels_config_image_adds_reference_panel():
+    config = build_labels_config(["Canala", "English"], image=True)
+    # The NER labelling controls survive…
+    assert '<Label value="Canala"' in config
+    assert 'value="$text"' in config
+    # …and the original page render is bound side-by-side via $image_url.
+    assert "<Image" in config
+    assert 'value="$image_url"' in config
 
 
 def test_load_label_set_reads_dictionary_languages_yaml(tmp_path):
@@ -109,3 +160,33 @@ def test_load_label_set_reads_dictionary_languages_yaml(tmp_path):
 
 def test_load_label_set_missing_file_returns_empty(tmp_path):
     assert load_label_set(tmp_path) == []
+
+
+def test_resolve_page_image_copies_png_into_render_dir(tmp_path):
+    from setup_ner_projects import resolve_page_image
+
+    dict_dir = tmp_path / "Some-Dict"
+    pages = dict_dir / "Dictionary pages"
+    pages.mkdir(parents=True)
+    (pages / "page_7.png").write_bytes(b"\x89PNG\r\n")  # content is irrelevant here
+
+    render_dir = tmp_path / "renders" / "Some-Dict"
+    url = resolve_page_image(dict_dir, 7, render_dir, document_root=tmp_path)
+
+    # The PNG is materialized into the single per-dict render dir (one storage covers
+    # the whole project) and served relative to the document root.
+    assert (render_dir / "page_7.png").is_file()
+    assert url == "/data/local-files/?d=renders/Some-Dict/page_7.png"
+
+
+def test_resolve_page_image_missing_returns_none(tmp_path):
+    from setup_ner_projects import resolve_page_image
+
+    dict_dir = tmp_path / "Some-Dict"
+    (dict_dir / "Dictionary pages").mkdir(parents=True)
+    assert (
+        resolve_page_image(
+            dict_dir, 7, tmp_path / "renders" / "Some-Dict", document_root=tmp_path
+        )
+        is None
+    )
