@@ -440,8 +440,7 @@ def _build_stage1_manifest(
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "strategy": args.strategy,
         "stage1_mode": getattr(args, "stage1_mode", "column"),
-        "stage1_typography": args.prompt_mode == "inference"
-        and not getattr(args, "no_stage1_typography", False),
+        "stage1_typography": not getattr(args, "no_stage1_typography", False),
         "flat_spec_version": FLAT_SPEC_VERSION,
         "git_sha": _git_short_sha(),
         "model": args.stage_models.stage_1,
@@ -595,10 +594,7 @@ def _build_strategy(
             prompt_cache=getattr(args, "prompt_cache", "auto"),
             media_reference=getattr(args, "media_reference", "auto"),
             prompt_cache_key=getattr(args, "prompt_cache_key", None),
-            stage1_typography=(
-                getattr(args, "prompt_mode", "benchmark") == "inference"
-                and not getattr(args, "no_stage1_typography", False)
-            ),
+            stage1_typography=not getattr(args, "no_stage1_typography", False),
         )
     raise ValueError(f"Unknown strategy: {args.strategy}")
 
@@ -948,8 +944,8 @@ Examples:
         "--no-stage1-typography",
         action="store_true",
         dest="no_stage1_typography",
-        help="Inference only: omit bold/italic <b>/<i> markup instructions from "
-        "Stage 1 prompts and structured output schema (plain text transcripts).",
+        help="Omit bold/italic <b>/<i> markup instructions from Stage 1 prompts "
+        "and structured output schema (plain text transcripts).",
     )
     parser.add_argument(
         "--batch-size",
@@ -1212,8 +1208,6 @@ Examples:
 
     is_benchmark = bool(getattr(args, "benchmark", False) or args.samples_dir)
     args.prompt_mode = "benchmark" if is_benchmark else "inference"
-    if is_benchmark and getattr(args, "no_stage1_typography", False):
-        print("Note: --no-stage1-typography ignored in benchmark mode")
     if (
         not is_benchmark
         and args.stage in ("2", "all", "2-pass-2")

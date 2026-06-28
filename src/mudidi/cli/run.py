@@ -148,8 +148,8 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--no-stage1-typography",
         action="store_true",
         dest="no_stage1_typography",
-        help="Inference only: omit bold/italic <b>/<i> markup instructions from "
-        "Stage 1 prompts and structured output schema (plain text transcripts).",
+        help="Omit bold/italic <b>/<i> markup instructions from Stage 1 prompts "
+        "and structured output schema (plain text transcripts).",
     )
     parser.add_argument(
         "--batch-size",

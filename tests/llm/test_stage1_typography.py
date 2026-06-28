@@ -31,11 +31,12 @@ def test_flat_inference_prompt_with_typography_by_default() -> None:
     assert "Wrap bold text in <b>" in prompt
 
 
-def test_benchmark_prompt_ignores_typography_flag() -> None:
+def test_benchmark_prompt_without_typography() -> None:
     with_typography = stage_1_flat_system_prompt(mode="benchmark", typography=True)
     without_typography = stage_1_flat_system_prompt(mode="benchmark", typography=False)
-    assert with_typography == without_typography
     assert "Wrap bold text in <b>" in with_typography
+    assert "Wrap bold text in <b>" not in without_typography
+    assert "plain text only" in without_typography
 
 
 def test_column_inference_prompt_without_typography() -> None:

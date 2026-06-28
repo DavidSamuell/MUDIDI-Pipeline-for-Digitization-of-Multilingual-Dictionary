@@ -33,7 +33,7 @@ def stage_1_system_prompt(
 ) -> str:
     """Stage 1 column-mode system prompt."""
     store = get_prompt_store()
-    if mode == "inference" and not typography:
+    if not typography:
         return store.get("stage_1_column_system_no_typography")
     return store.get("stage_1_column_system")
 
@@ -62,7 +62,7 @@ def stage_1_flat_system_prompt(
     """
     del page_context  # neighbors handled in user preamble, not system prompt
     store = get_prompt_store()
-    if mode == "inference" and not typography:
+    if not typography:
         return store.get("stage_1_system_inference_no_typography")
     prompt_id = prompt_id_for_mode("stage_1_system", mode)
     return store.get(prompt_id)
