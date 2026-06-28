@@ -58,6 +58,9 @@ class Stage1ReportWriter:
             cols = [*cols, self._READ_ORDER_COL]
         return cols
 
+    def _extended_metric_csv_cols(self, results: List[Stage1Metrics]) -> List[str]:
+        return list(self._metric_csv_cols())
+
     @staticmethod
     def _pick_columns(row: dict, columns: List[str]) -> dict:
         return {col: row[col] for col in columns}
@@ -279,15 +282,25 @@ class Stage1ReportWriter:
         experiment: str,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: Path | None = None,
     ) -> tuple[bool, bool]:
-        path = (
-            samples_dir
-            / language
-            / "outputs"
-            / stage1_output_subdir
-            / experiment
-            / "run_config.json"
-        )
+        if pred_root is not None:
+            path = (
+                pred_root
+                / language
+                / stage1_output_subdir
+                / experiment
+                / "run_config.json"
+            )
+        else:
+            path = (
+                samples_dir
+                / language
+                / "outputs"
+                / stage1_output_subdir
+                / experiment
+                / "run_config.json"
+            )
         if not path.is_file():
             return False, False
         try:
@@ -340,6 +353,7 @@ class Stage1ReportWriter:
         samples_dir: Path,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: Path | None = None,
     ) -> dict:
         parsed = self._parse_page_id(m.page_id)
         if parsed is None:
@@ -352,6 +366,7 @@ class Stage1ReportWriter:
                 language,
                 experiment,
                 stage1_output_subdir=stage1_output_subdir,
+                pred_root=pred_root,
             )
         row = {
             "experiment": experiment,
@@ -364,7 +379,7 @@ class Stage1ReportWriter:
             "page_id": m.page_id,
             **self._metrics_from_stage1(m),
         }
-        return self._pick_columns(row, self._detailed_csv_cols())
+        return row
 
     def generate_detailed_csv(
         self,
@@ -373,20 +388,35 @@ class Stage1ReportWriter:
         output_path: str | Path,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: str | Path | None = None,
     ) -> None:
         samples_dir = Path(samples_dir)
+        pred_root_path = Path(pred_root) if pred_root is not None else None
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         rows: List[dict] = []
+        all_results = [m for results in results_by_exp.values() for m in results]
+        detailed_cols = [
+            "experiment",
+            "alphabet",
+            "ocr-hint",
+            "page_id",
+            *self._extended_metric_csv_cols(all_results),
+        ]
+
         for exp, results in results_by_exp.items():
             for m in results:
                 rows.append(
-                    self._detailed_csv_row(
-                        exp,
-                        m,
-                        samples_dir,
-                        stage1_output_subdir=stage1_output_subdir,
+                    self._pick_columns(
+                        self._detailed_csv_row(
+                            exp,
+                            m,
+                            samples_dir,
+                            stage1_output_subdir=stage1_output_subdir,
+                            pred_root=pred_root_path,
+                        ),
+                        detailed_cols,
                     )
                 )
             if len(results) > 1:
@@ -400,10 +430,10 @@ class Stage1ReportWriter:
                             "page_id": "__aggregate__",
                             **self._metrics_from_aggregate(agg),
                         },
-                        self._detailed_csv_cols(),
+                        detailed_cols,
                     )
                 )
-        self._write_csv(rows, self._detailed_csv_cols(), output_path)
+        self._write_csv(rows, detailed_cols, output_path)
 
     def generate_summary_csv(
         self,
@@ -412,12 +442,25 @@ class Stage1ReportWriter:
         output_path: str | Path,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: str | Path | None = None,
     ) -> None:
         samples_dir = Path(samples_dir)
+        pred_root_path = Path(pred_root) if pred_root is not None else None
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         rows: List[dict] = []
+        all_results = [m for lang_results in results_by_exp.values() for m in lang_results]
+        summary_metric_cols = self._extended_metric_csv_cols(all_results)
+        summary_cols = [
+            "experiment",
+            "language",
+            "alphabet",
+            "ocr-hint",
+            "page_count",
+            *summary_metric_cols,
+        ]
+
         for exp, results in results_by_exp.items():
             by_lang: Dict[str, List[Stage1Metrics]] = {}
             for m in results:
@@ -434,6 +477,7 @@ class Stage1ReportWriter:
                     language,
                     exp,
                     stage1_output_subdir=stage1_output_subdir,
+                    pred_root=pred_root_path,
                 )
                 row = {
                     "experiment": exp,
@@ -443,8 +487,8 @@ class Stage1ReportWriter:
                     "page_count": len(lang_results),
                     **self._metrics_from_aggregate(self._aggregate(lang_results)),
                 }
-                rows.append(self._pick_columns(row, self._summary_csv_cols()))
-        self._write_csv(rows, self._summary_csv_cols(), output_path)
+                rows.append(self._pick_columns(row, summary_cols))
+        self._write_csv(rows, summary_cols, output_path)
 
     def generate_text_report(
         self,

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
+
+from mudidi.evaluation.stage1.stage1_task_discovery import (
+    FlatEvalTask,
+    discover_dataset_tasks as _discover_dataset_tasks,
+    discover_legacy_tasks as _discover_legacy_tasks,
+)
 
 from mudidi.evaluation.stage1.alignment import (
     align_lines_quick_match,
@@ -26,16 +31,6 @@ from mudidi.evaluation.stage1.stage1_metrics import Stage1Metrics
 Row = Dict[str, str]
 MetricsProfile = Literal["full", "minimal"]
 CharacterAlignmentMode = Literal["collapsed", "quick_match"]
-
-
-@dataclass(frozen=True)
-class FlatEvalTask:
-    """One flat predicted vs flat gold evaluation unit."""
-
-    experiment: str
-    pred_path: Path
-    gold_path: Path
-    page_id: str
 
 
 def _lines_to_rows(lines: List[str]) -> List[Row]:
@@ -84,7 +79,9 @@ class FlatStage1Evaluator:
         gold_path: str | Path,
         page_id: str = "",
     ) -> Stage1Metrics:
-        pred_lines = _load_pred_lines(Path(pred_path))
+        pred_path = Path(pred_path)
+        gold_path = Path(gold_path)
+        pred_lines = _load_pred_lines(pred_path)
         gold_lines = load_flat_lines(gold_path)
         pred_rows = _lines_to_rows(pred_lines)
         gold_rows = _lines_to_rows(gold_lines)
@@ -96,6 +93,7 @@ class FlatStage1Evaluator:
             read_order = compute_read_order(content_alignment)
         char_q = compute_character_quality(content_alignment)
         markup_q = compute_markup_quality(content_alignment)
+
         return Stage1Metrics(
             page_id=page_id,
             character_quality=char_q,
@@ -110,59 +108,30 @@ class FlatStage1Evaluator:
         languages: Optional[List[str]] = None,
         stage1_output_subdir: str = "stage-1",
     ) -> List[FlatEvalTask]:
-        """
-        Discover (experiment, page) pairs with flat gold and a flat or column pred.
+        """Discover flat gold/pred pairs under the legacy samples layout."""
+        return _discover_legacy_tasks(
+            samples_dir,
+            experiments=experiments,
+            languages=languages,
+            stage1_output_subdir=stage1_output_subdir,
+        )
 
-        Gold: ``*/outputs/stage-1-gold/*/*_stage1_GOLD_flat.txt``
-        Pred: ``*/outputs/<subdir>/<exp>/*/*_stage1_flat.txt`` or ``*_stage1.tsv``
-        """
-        samples_dir = Path(samples_dir)
-        tasks: List[FlatEvalTask] = []
-        selected_languages = set(languages) if languages else None
-
-        golds_by_lang: Dict[Path, List[Path]] = {}
-        for gold_path in sorted(
-            samples_dir.glob("*/outputs/stage-1-gold/*/*_stage1_GOLD_flat.txt")
-        ):
-            lang = gold_path.parts[-5]
-            if selected_languages and lang not in selected_languages:
-                continue
-            golds_by_lang.setdefault(gold_path.parents[3], []).append(gold_path)
-
-        for lang_dir, gold_paths in sorted(golds_by_lang.items()):
-            stage1_root = lang_dir / "outputs" / stage1_output_subdir
-            if not stage1_root.is_dir():
-                continue
-            available = sorted(
-                p.name
-                for p in stage1_root.iterdir()
-                if p.is_dir() and not p.name.startswith(".")
-            )
-            exp_names = available if experiments is None else [
-                e for e in experiments if e in available
-            ]
-            for exp in exp_names:
-                for gold_path in gold_paths:
-                    stem = gold_path.parent.name
-                    page_dir = stage1_root / exp / stem
-                    pred_flat = page_dir / f"{stem}_stage1_flat.txt"
-                    pred_tsv = page_dir / f"{stem}_stage1.tsv"
-                    if pred_flat.is_file():
-                        pred_path = pred_flat
-                    elif pred_tsv.is_file():
-                        pred_path = pred_tsv
-                    else:
-                        continue
-                    page_id = f"{lang_dir.name}/{stem}"
-                    tasks.append(
-                        FlatEvalTask(
-                            experiment=exp,
-                            pred_path=pred_path,
-                            gold_path=gold_path,
-                            page_id=page_id,
-                        )
-                    )
-        return tasks
+    @staticmethod
+    def discover_dataset_tasks(
+        dataset_dir: str | Path,
+        pred_root: str | Path,
+        experiments: Optional[List[str]] = None,
+        languages: Optional[List[str]] = None,
+        stage1_output_subdir: str = "stage-1",
+    ) -> List[FlatEvalTask]:
+        """Discover flat gold/pred pairs under the MUDIDI dataset + benchmark layout."""
+        return _discover_dataset_tasks(
+            dataset_dir,
+            pred_root,
+            experiments=experiments,
+            languages=languages,
+            stage1_output_subdir=stage1_output_subdir,
+        )
 
     def generate_text_report(
         self, results: List[Stage1Metrics], output_path: Path
@@ -186,12 +155,14 @@ class FlatStage1Evaluator:
         output_path: Path,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: Path | None = None,
     ) -> None:
         return self._report_helper.generate_detailed_csv(
             results_by_exp,
             samples_dir,
             output_path,
             stage1_output_subdir=stage1_output_subdir,
+            pred_root=pred_root,
         )
 
     def generate_summary_csv(
@@ -201,10 +172,12 @@ class FlatStage1Evaluator:
         output_path: Path,
         *,
         stage1_output_subdir: str = "stage-1",
+        pred_root: Path | None = None,
     ) -> None:
         return self._report_helper.generate_summary_csv(
             results_by_exp,
             samples_dir,
             output_path,
             stage1_output_subdir=stage1_output_subdir,
+            pred_root=pred_root,
         )

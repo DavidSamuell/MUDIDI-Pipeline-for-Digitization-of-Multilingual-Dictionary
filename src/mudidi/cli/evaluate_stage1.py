@@ -40,16 +40,21 @@ def _parallel_eval_worker(
         str,
         str,
         str,
-        str,
         MetricsProfile,
         CharacterAlignmentMode,
         float,
     ],
 ) -> tuple[str, str, Path, Path, Stage1Metrics]:
     """Evaluate one flat page (picklable entry point for ProcessPoolExecutor)."""
-    experiment, pred_s, gold_s, page_id, metrics_profile, character_alignment, ath = (
-        payload
-    )
+    (
+        experiment,
+        pred_s,
+        gold_s,
+        page_id,
+        metrics_profile,
+        character_alignment,
+        ath,
+    ) = payload
     evaluator = FlatStage1Evaluator(
         metrics_profile=metrics_profile,
         character_alignment=character_alignment,
@@ -57,7 +62,11 @@ def _parallel_eval_worker(
     )
     pred_path = Path(pred_s)
     gold_path = Path(gold_s)
-    metrics = evaluator.evaluate(pred_path, gold_path, page_id=page_id)
+    metrics = evaluator.evaluate(
+        pred_path,
+        gold_path,
+        page_id=page_id,
+    )
     return experiment, page_id, pred_path, gold_path, metrics
 
 # Specialized OCR backends (folder names without "flat"; preds use *_stage1_flat.txt).
@@ -67,6 +76,56 @@ DEFAULT_VLM_OCR_EXPERIMENTS: tuple[str, ...] = (
     "GLM-OCR",
     "Mathpix-OCR",
 )
+
+
+def list_stage1_experiments_from_pred_root(
+    pred_root: Path,
+    *,
+    languages: list[str] | None,
+    name_contains: str | None,
+    stage1_output_subdir: str = "stage-1",
+) -> list[str]:
+    """Return sorted experiment folder names under benchmark ``pred_root`` layout."""
+    needle = name_contains.lower() if name_contains else None
+    names: set[str] = set()
+    for lang_dir in sorted(pred_root.iterdir()):
+        if not lang_dir.is_dir():
+            continue
+        if languages and lang_dir.name not in languages:
+            continue
+        stage1_root = lang_dir / stage1_output_subdir
+        if not stage1_root.is_dir():
+            continue
+        for child in stage1_root.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                if needle is None or needle in child.name.lower():
+                    names.add(child.name)
+    return sorted(names)
+
+
+def find_flat_and_vlm_ocr_experiments_from_pred_root(
+    pred_root: Path,
+    *,
+    languages: list[str] | None,
+    stage1_output_subdir: str = "stage-1",
+) -> list[str]:
+    """LLM flat ablations plus specialized OCR folders from benchmark pred root."""
+    flat = list_stage1_experiments_from_pred_root(
+        pred_root,
+        languages=languages,
+        name_contains="flat",
+        stage1_output_subdir=stage1_output_subdir,
+    )
+    on_disk = set(
+        list_stage1_experiments_from_pred_root(
+            pred_root,
+            languages=languages,
+            name_contains=None,
+            stage1_output_subdir=stage1_output_subdir,
+        )
+    )
+    ocr = [name for name in DEFAULT_VLM_OCR_EXPERIMENTS if name in on_disk]
+    return sorted(set(flat) | set(ocr))
 
 
 def list_stage1_experiments(
@@ -124,6 +183,7 @@ def split_results_by_ocr_hint(
     samples_dir: Path,
     *,
     stage1_output_subdir: str = "stage-1",
+    pred_root: Path | None = None,
 ) -> tuple[OrderedDict[str, list[Stage1Metrics]], OrderedDict[str, list[Stage1Metrics]]]:
     """Partition cached results into non-OCR-hint vs OCR-hint LLM experiments."""
     without_hint: OrderedDict[str, list[Stage1Metrics]] = OrderedDict()
@@ -141,6 +201,7 @@ def split_results_by_ocr_hint(
                 language,
                 experiment,
                 stage1_output_subdir=stage1_output_subdir,
+                pred_root=pred_root,
             )
             if ocr_hint:
                 uses_ocr_hint = True
@@ -162,14 +223,28 @@ def filter_results_by_experiment(
 
 
 def experiment_names_for_eval(
-    args: argparse.Namespace, samples: Path
+    args: argparse.Namespace,
+    samples: Path | None = None,
+    *,
+    pred_root: Path | None = None,
 ) -> list[str] | None:
     """Resolve which experiment folders to include in batch eval-flat."""
     subdir = getattr(args, "stage1_output_subdir", "stage-1")
-    if args.include_vlm_ocr:
-        found = find_flat_and_vlm_ocr_experiments(
-            samples, languages=args.languages, stage1_output_subdir=subdir
+    if pred_root is not None:
+        list_experiments = lambda **kw: list_stage1_experiments_from_pred_root(
+            pred_root, **kw
         )
+        find_flat_vlm = lambda **kw: find_flat_and_vlm_ocr_experiments_from_pred_root(
+            pred_root, **kw
+        )
+    else:
+        if samples is None:
+            raise ValueError("samples required when pred_root is not set")
+        list_experiments = lambda **kw: list_stage1_experiments(samples, **kw)
+        find_flat_vlm = lambda **kw: find_flat_and_vlm_ocr_experiments(samples, **kw)
+
+    if args.include_vlm_ocr:
+        found = find_flat_vlm(languages=args.languages, stage1_output_subdir=subdir)
         if args.experiment_names:
             allowed = set(args.experiment_names)
             found = [name for name in found if name in allowed]
@@ -179,8 +254,7 @@ def experiment_names_for_eval(
             print(f"Experiments (flat + VLM OCR): {found}")
         return found
     if args.experiment_name_contains:
-        found = list_stage1_experiments(
-            samples,
+        found = list_experiments(
             languages=args.languages,
             name_contains=args.experiment_name_contains,
             stage1_output_subdir=subdir,
@@ -206,7 +280,15 @@ def main() -> int:
     )
     parser.add_argument("-p", "--predicted", help="Predicted flat .txt or column .tsv")
     parser.add_argument("-g", "--gold", help="Gold flat .txt")
-    parser.add_argument("--samples-dir", help="Samples root for batch mode")
+    parser.add_argument("--samples-dir", help="Legacy samples root for batch mode")
+    parser.add_argument(
+        "--dataset-dir",
+        help="MUDIDI dataset root containing per-language dictionary folders.",
+    )
+    parser.add_argument(
+        "--pred-root",
+        help="Prediction root matching <language>/stage-1/<experiment>/<page>/ layout.",
+    )
     parser.add_argument(
         "--experiment-name",
         dest="experiment_names",
@@ -289,7 +371,13 @@ def main() -> int:
             print("Error: -p and -g must exist for single-file mode")
             return 1
         page_id = pred.stem.replace("_stage1_flat", "").replace("_stage1", "")
-        results = [evaluator.evaluate(pred, gold, page_id=page_id)]
+        results = [
+            evaluator.evaluate(
+                pred,
+                gold,
+                page_id=page_id,
+            )
+        ]
         out = Path(args.output_dir) if args.output_dir else pred.parent
         report_path = out / "stage1_flat_evaluation_report.txt"
         text = evaluator.generate_text_report(results, report_path)
@@ -299,12 +387,31 @@ def main() -> int:
         print(f"\nReports saved to: {out}")
         return 0
 
-    if not args.samples_dir:
-        parser.error("Provide -p/-g or --samples-dir")
-    samples = Path(args.samples_dir)
-    if not samples.is_dir():
-        print(f"Error: samples directory not found: {samples}")
-        return 1
+    use_dataset_layout = bool(args.dataset_dir or args.pred_root)
+    if use_dataset_layout:
+        if not args.dataset_dir or not args.pred_root:
+            parser.error("--dataset-dir and --pred-root must be used together")
+        dataset = Path(args.dataset_dir)
+        pred_root = Path(args.pred_root)
+        if not dataset.is_dir():
+            print(f"Error: dataset directory not found: {dataset}")
+            return 1
+        if not pred_root.is_dir():
+            print(f"Error: prediction root not found: {pred_root}")
+            return 1
+        config_root = dataset
+    else:
+        if not args.samples_dir:
+            parser.error(
+                "Provide -p/-g, --samples-dir, or --dataset-dir with --pred-root"
+            )
+        samples = Path(args.samples_dir)
+        if not samples.is_dir():
+            print(f"Error: samples directory not found: {samples}")
+            return 1
+        config_root = samples
+        pred_root = None
+        dataset = None
 
     mode_flags = sum(
         bool(x)
@@ -320,25 +427,41 @@ def main() -> int:
             "--include-vlm-ocr."
         )
 
-    out = Path(args.output_dir) if args.output_dir else samples / "stage1_flat_eval"
+    out = (
+        Path(args.output_dir)
+        if args.output_dir
+        else (pred_root / "stage1_flat_eval" if pred_root else samples / "stage1_flat_eval")
+    )
     out.mkdir(parents=True, exist_ok=True)
 
-    experiment_names = experiment_names_for_eval(args, samples)
+    experiment_names = experiment_names_for_eval(
+        args,
+        samples if not use_dataset_layout else None,
+        pred_root=pred_root,
+    )
     if experiment_names is not None and not experiment_names:
         return 1
 
-    tasks_export = evaluator.discover_tasks(
-        samples,
-        experiments=experiment_names,
-        languages=None,
-        stage1_output_subdir=args.stage1_output_subdir,
-    )
-    tasks_eval = evaluator.discover_tasks(
-        samples,
-        experiments=experiment_names,
-        languages=args.languages,
-        stage1_output_subdir=args.stage1_output_subdir,
-    )
+    if use_dataset_layout:
+        assert dataset is not None and pred_root is not None
+        discover = lambda langs: evaluator.discover_dataset_tasks(
+            dataset,
+            pred_root,
+            experiments=experiment_names,
+            languages=langs,
+            stage1_output_subdir=args.stage1_output_subdir,
+        )
+    else:
+        assert samples is not None
+        discover = lambda langs: evaluator.discover_tasks(
+            samples,
+            experiments=experiment_names,
+            languages=langs,
+            stage1_output_subdir=args.stage1_output_subdir,
+        )
+
+    tasks_export = discover(None)
+    tasks_eval = discover(args.languages)
     if not tasks_export:
         print("No flat gold/pred pairs found.")
         return 1
@@ -407,7 +530,9 @@ def main() -> int:
     else:
         for task in to_eval:
             m = evaluator.evaluate(
-                task.pred_path, task.gold_path, page_id=task.page_id
+                task.pred_path,
+                task.gold_path,
+                page_id=task.page_id,
             )
             _store_eval_result(
                 task.experiment,
@@ -417,7 +542,9 @@ def main() -> int:
                 m,
             )
 
-    cache.prune_stale_paths(samples, stage1_output_subdir=args.stage1_output_subdir)
+    if not use_dataset_layout:
+        assert samples is not None
+        cache.prune_stale_paths(samples, stage1_output_subdir=args.stage1_output_subdir)
     cache.save()
 
     paired = []
@@ -447,12 +574,7 @@ def main() -> int:
         print(f"\n### Experiment: {exp} ({len(results)} page(s)) ###")
         print(text)
 
-    tasks_for_csv = evaluator.discover_tasks(
-        samples,
-        experiments=None,
-        languages=args.languages,
-        stage1_output_subdir=args.stage1_output_subdir,
-    )
+    tasks_for_csv = discover(args.languages)
     results_for_csv: OrderedDict[str, list[Stage1Metrics]] = cache.collect_valid_metrics(
         tasks_for_csv,
         alignment_threshold=ath,
@@ -460,8 +582,9 @@ def main() -> int:
     )
     main_results, ocr_hint_results = split_results_by_ocr_hint(
         results_for_csv,
-        samples,
+        config_root,
         stage1_output_subdir=args.stage1_output_subdir,
+        pred_root=pred_root,
     )
     split_ocr_hint = args.stage1_output_subdir == "stage-1"
     if split_ocr_hint:
@@ -485,30 +608,34 @@ def main() -> int:
         print(
             f"Aggregate CSVs: {n_csv_pages} page(s) across {n_csv_exps} experiment(s)."
         )
+    csv_kwargs = {
+        "stage1_output_subdir": args.stage1_output_subdir,
+        "pred_root": pred_root,
+    }
     evaluator.generate_detailed_csv(
         csv_results,
-        samples,
+        config_root,
         out / "stage1_flat_eval_detailed.csv",
-        stage1_output_subdir=args.stage1_output_subdir,
+        **csv_kwargs,
     )
     evaluator.generate_summary_csv(
         csv_results,
-        samples,
+        config_root,
         out / "stage1_flat_eval_summary.csv",
-        stage1_output_subdir=args.stage1_output_subdir,
+        **csv_kwargs,
     )
     if split_ocr_hint and ocr_hint_results:
         evaluator.generate_detailed_csv(
             ocr_hint_results,
-            samples,
+            config_root,
             out / FLAT_OCR_HINT_DETAILED_FILE_NAME,
-            stage1_output_subdir=args.stage1_output_subdir,
+            **csv_kwargs,
         )
         evaluator.generate_summary_csv(
             ocr_hint_results,
-            samples,
+            config_root,
             out / FLAT_OCR_HINT_SUMMARY_FILE_NAME,
-            stage1_output_subdir=args.stage1_output_subdir,
+            **csv_kwargs,
         )
         gemini31pro_results = filter_results_by_experiment(
             ocr_hint_results, "gemini31pro_flat_alpha_ocr"
@@ -516,9 +643,9 @@ def main() -> int:
         if gemini31pro_results:
             evaluator.generate_summary_csv(
                 gemini31pro_results,
-                samples,
+                config_root,
                 out / GEMINI31PRO_FLAT_ALPHA_OCR_SUMMARY_FILE_NAME,
-                stage1_output_subdir=args.stage1_output_subdir,
+                **csv_kwargs,
             )
     print(f"\nReports under: {out}")
     return 0
