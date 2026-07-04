@@ -525,6 +525,7 @@ uv run mudidi run \
 | `--dictionary-languages PATH`        | —                       | Optional `dictionary_languages.yaml` for Stage 2 Pass 1 (layout + source/target hint). Inference: opt-in only. Benchmark: auto-loads per-entry YAML when omitted.                         |
 | `--parse-rules-gold`                 | off                     | Benchmark: load gold `parse-rules.json` from `outputs/stage-2-gold/` (skips Pass 1 LLM)                                                                                                   |
 | `--stage1-source {gold,predictions}` | `predictions`           | Stage 2 input source (inference uses predictions)                                                                                                                                         |
+| `--stage2-lexical-repair`            | off                     | After Stage 2 MDF generation, conservatively repair lexical characters in MDF field values from the Stage 1 transcript. Markers, line breaks, whitespace, and punctuation are preserved. |
 
 ### Model selection
 
@@ -624,6 +625,7 @@ uv run mudidi run \
 | `--no-stage1-typography`                    | off         | Plain Stage 1 transcripts without `<b>`/`<i>` markup instructions                                                                                                                                                                                                                                 |
 | `--batch-size N`                            | `1`         | Concurrent page workers for `two_stage` (thread pool; each worker calls `litellm.completion` independently — no litellm batch API flag)                                                                                                                                                           |
 | `--stage-2-guides PATH`                     | —           | Extra rules appended to Stage 2 prompt                                                                                                                                                                                                                                                            |
+| `--stage2-lexical-repair`                   | off         | Opt-in Stage 2 post-processing guard: repairs only high-confidence lexical drift from the Stage 1 transcript while preserving Stage 2 MDF markers, line breaks, whitespace, and punctuation.                                                            |
 | `--overwrite`                               | off         | Re-process pages even if output exists; also **re-runs Pass 1 LLM discovery** when `{output_dir}/parse-rules.json` already exists                                                                                                                                                                 |
 | `--limit N`                                 | —           | Process at most N pages                                                                                                                                                                                                                                                                           |
 | `--no-alphabet`                             | off         | Skip alphabet hint                                                                                                                                                                                                                                                                                |
@@ -673,7 +675,9 @@ Flat mode asks the model for structured JSON (`header` / `lines` / `footer` list
   - **Option B (directory):** files in the `--pages` snippets directory only. No context from pages missing from that folder.
   - First page in the list has no previous neighbor; last has no next. Non-contiguous specs (e.g. `53,77`) mean page 53 has no next and page 77 has no previous **within the run**.
   - Output still belongs to the **current** page only; neighbors are disambiguation context for hyphenation and cross-page entries.
+  - Stage 2 uses page-local ownership: emit entries whose `\lx` starts on the current page, and emit `\se` subentries whose subentry heading starts on the current page even when the parent `\lx` started on a previous page. In that case, the page output may contain an orphan `\se` block rather than repeating or inventing the parent `\lx`; downstream assembly can attach those page-local subentries back to their parent records.
 - **Stage chaining** — with `--stage all`, MUDIDI runs **all Stage 1 pages first**, then **all Stage 2 Pass 2 pages** (so Stage 2 neighbor transcripts include the next page when it is in the same run). Stage 2 reads Stage 1 predictions from `--output-dir` automatically. Default `--batch-size 1` runs one page at a time; **`--batch-size N`** runs up to N concurrent workers (thread pool over separate `litellm.completion` calls — not a litellm batch-API flag).
+- **Stage 2 lexical repair** — `--stage2-lexical-repair` is an opt-in post-processing pass after MDF extraction. It aligns each MDF field value back to the Stage 1 transcript and rewrites only lexical character runs when the source span is high-confidence. MDF markers, line breaks, whitespace, and punctuation stay exactly as Stage 2 emitted them. This is a **faithfulness guard**, not a guaranteed accuracy improvement: if Stage 2 correctly fixed a Stage 1 OCR mistake, forcing the value back to Stage 1 can make character accuracy worse, so the default policy is deliberately conservative.
 - **Prompts** — inference uses `*_inference` prompt variants in `assets/PROMPT.json` (see [Customising prompts](#customising-prompts)).
 
 ### Rate limits and retries
@@ -710,6 +714,65 @@ snippets/ + alphabet
 **Stage 2 Pass 1** runs **once** per `--output-dir`: reads the introduction + one or more sample pages selected by `--parse-rules-page` (+ optional `--dictionary-languages` hint) and writes `parse-rules.json`. With a single sample, the user prompt is `stage_2_pass_2`; with two or more samples, `stage_2_pass_2_multi`. Alternatively, pass `--parse-rules-file` to load rules you edited by hand.
 
 **Stage 2 Pass 2** runs per page: copies characters verbatim from the Stage 1 transcript and assigns MDF markers using `parse-rules.json` (introduction is not re-attached).
+
+### Stage 2 lexical repair
+
+Stage 2 is instructed to copy textual content from Stage 1 while assigning MDF markers, but LLMs can sometimes normalize, correct, or drift lexical characters. Passing `--stage2-lexical-repair` enables a conservative post-processor after Stage 2 Pass 2:
+
+```bash
+uv run mudidi run \
+  --pages my-dictionary/snippets \
+  --output-dir my-dictionary/output \
+  --stage 2-pass-2 \
+  --stage2-lexical-repair
+```
+
+The repair pass:
+
+- uses the same Stage 1 transcript that Stage 2 consumed;
+- repairs MDF field **values** only, never MDF markers;
+- preserves Stage 2 line breaks, whitespace, and punctuation;
+- rewrites only Unicode lexical characters (letters, numbers, combining marks);
+- writes `{page}_lexical_repair.json` beside each repaired MDF page as an audit log.
+
+The default in-pipeline thresholds are intentionally strict and currently not exposed as `mudidi run` flags:
+
+| Setting | Default | Meaning |
+| ------- | ------- | ------- |
+| `min_anchor_coverage` | `0.8` | At least 80% of the MDF value's lexical characters must be anchored to Stage 1 tokens before repair. |
+| `min_value_lexical_chars` | `8` | Very short values are skipped to avoid ambiguous repairs. |
+| `max_span_to_value_ratio` | `1.5` | The matched Stage 1 source span can be at most 1.5x the normalized MDF value length. |
+| `allow_approximate` | `true` | Allows approximate token anchoring; exact/compact matches are audit-only and are not rewritten. |
+
+For benchmark experiments on existing E2E outputs, use the standalone script. It writes a sibling repaired tree instead of overwriting model outputs:
+
+```bash
+STAGE1_EXPERIMENT=gemini31pro_flat_alpha \
+  bash examples/evaluation/run_stage2_e2e_lexical_repair.sh
+```
+
+Standalone output defaults:
+
+| Path | Meaning |
+| ---- | ------- |
+| `outputs/benchmark/stage-2-e2e-lexical-repair/` | Repaired MDF benchmark tree |
+| `evaluations/stage2_mdf_eval_e2e_lexical_repair/` | Evaluation reports and audit CSV |
+| `stage2_mdf_lexical_repair_audit.csv` | Per-page counts and links to per-page JSON audits |
+
+Advanced repair thresholds can be changed by calling the module directly:
+
+```bash
+uv run python -m mudidi.evaluation.stage2.mdf_lexical_repair \
+  --pred-root outputs/benchmark/stage-2-e2e \
+  --output-root outputs/benchmark/stage-2-e2e-lexical-repair \
+  --stage1-experiment gemini31pro_flat_alpha \
+  --audit-csv evaluations/stage2_mdf_eval_e2e_lexical_repair/stage2_mdf_lexical_repair_audit.csv \
+  --min-anchor-coverage 0.8 \
+  --min-value-lexical-chars 8 \
+  --max-span-to-value-ratio 1.5
+```
+
+Pass `--exact-only` to disable approximate-token anchoring entirely. With the current conservative defaults, the repair may change zero lines; that means no value met the safety criteria.
 
 ### Parse rules vs toolbox PDF
 
@@ -1118,6 +1181,15 @@ bash examples/evaluation/run_stage2_eval.sh
 ```
 
 See [`examples/README.md`](examples/README.md) for PDF mode, environment overrides, and model flags.
+
+For the Stage 2 E2E lexical-repair ablation:
+
+```bash
+STAGE1_EXPERIMENT=gemini31pro_flat_alpha \
+  bash examples/evaluation/run_stage2_e2e_lexical_repair.sh
+```
+
+Set `RUN_EVAL=0` to only write repaired MDF outputs and audits without rerunning evaluation. Override `PRED_ROOT`, `REPAIRED_ROOT`, `OUTPUT_DIR`, or `AUDIT_CSV` when comparing alternate E2E output trees.
 
 ### Dataset layout (Hugging Face release)
 

@@ -8,9 +8,18 @@ import tier2_labeler  # noqa: E402  (module handle for monkeypatching the LLM)
 from label_studio_ner import page_map_to_ls_task, ls_task_to_page_map  # noqa: E402
 from tier2_labeler import (  # noqa: E402
     _strip_code_fence,
+    apply_code_overrides,
+    build_legend_prompt,
     build_prompt,
+    build_tagging_prompt,
+    dictionary_legend_path,
     label_dictionary,
+    load_legend,
+    parse_legend_output,
+    read_dictionary_rules,
     read_language_seed,
+    resolve_legend_path,
+    save_legend,
 )
 from tier2_recovery import (  # noqa: E402
     Tier2DriftError,
@@ -142,6 +151,8 @@ def test_strip_code_fence():
 def test_build_prompt_lists_seed_and_text():
     prompt = build_prompt("akɔɔtee small\n", ["Canala", "English", "French"])
     assert "Canala, English, French" in prompt
+    assert "Language-Script" in prompt
+    assert "Japanese-Hiragana" in prompt
     assert "akɔɔtee small" in prompt
     assert "Do NOT add, delete" in prompt
 
@@ -155,6 +166,183 @@ def test_read_language_seed_merges_rules(tmp_path):
         "languages:\n- French\n", encoding="utf-8"
     )
     assert read_language_seed(tmp_path) == ["Canala", "English", "French"]
+
+
+def test_read_dictionary_rules_loads_text_and_overrides(tmp_path):
+    (tmp_path / "language_rules.yaml").write_text(
+        "languages:\n- French\n"
+        "rules: |\n"
+        "  Treat abbreviations as meta.\n"
+        "code_overrides:\n"
+        "  orok: Evenki\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "extra.md").write_text("Only use Evenki and Russian.", encoding="utf-8")
+    rules = read_dictionary_rules(tmp_path, [tmp_path / "extra.md"])
+    assert rules.extra_languages == ("French",)
+    assert "Treat abbreviations as meta." in rules.rules_text
+    assert "Only use Evenki and Russian." in rules.rules_text
+    assert rules.code_overrides == {"orok": "Evenki"}
+
+
+def test_apply_code_overrides_renames_legend_entries():
+    legend = {"orok": "Orok", "rus": "Russian"}
+    merged = apply_code_overrides(legend, {"orok": "Evenki"})
+    assert merged == {"orok": "Evenki", "rus": "Russian"}
+
+
+def test_parse_legend_output_parses_codes():
+    out = "LANGUAGES:\neng-lat = English-Latin\njph = Japanese-Hiragana\n"
+    legend, block = parse_legend_output(out)
+    assert legend == {"eng-lat": "English-Latin", "jph": "Japanese-Hiragana"}
+    assert "eng-lat = English-Latin" in block
+
+
+def test_recover_compound_language_script_labels():
+    raw = "こんにちは HELLO\n"
+    tagged = "<jph>こんにちは</jph> <eng-lat>HELLO</eng-lat>\n"
+    legend = {"jph": "Japanese-Hiragana", "eng-lat": "English-Latin"}
+    pm, used, drift = recover_page_map(
+        raw, tagged, dictionary="Japanese-English", page=1, code_to_language=legend
+    )
+    assert drift == 0.0
+    assert _lang_at(pm, raw, "こんにちは") == "Japanese-Hiragana"
+    assert _lang_at(pm, raw, "HELLO") == "English-Latin"
+    assert set(used) == {"Japanese-Hiragana", "English-Latin"}
+
+
+def test_build_legend_prompt_includes_rules():
+    prompt = build_legend_prompt(
+        "hello\n",
+        ["Evenki", "Russian"],
+        rules_text="Only use Evenki and Russian.",
+    )
+    assert "Only use Evenki and Russian." in prompt
+    assert "Do NOT output a TAGGED: block" in prompt
+
+
+def test_build_tagging_prompt_uses_fixed_legend():
+    prompt = build_tagging_prompt(
+        "hello\n",
+        {"evn": "Evenki", "rus": "Russian"},
+        rules_text="Dialect abbreviations are meta.",
+    )
+    assert "evn = Evenki" in prompt
+    assert "Use ONLY the short codes listed above" in prompt
+    assert "Dialect abbreviations are meta." in prompt
+
+
+def test_save_and_load_legend_round_trip(tmp_path):
+    legend_path = tmp_path / "page_1_legend.yaml"
+    save_legend(legend_path, {"orok": "Evenki", "rus": "Russian"}, raw_text="raw")
+    assert load_legend(legend_path) == {"orok": "Evenki", "rus": "Russian"}
+    assert (tmp_path / "page_1_legend.raw.txt").read_text(encoding="utf-8") == "raw"
+
+
+def test_save_dictionary_legend_raw_txt(tmp_path):
+    legend_path = tmp_path / "language_legend.yaml"
+    save_legend(legend_path, {"evn": "Evenki"}, raw_text="raw")
+    assert (tmp_path / "language_legend.raw.txt").read_text(encoding="utf-8") == "raw"
+
+
+def test_resolve_legend_path_prefers_dictionary(tmp_path):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "hello\n"})
+    out_root = tmp_path / "outputs"
+    gold = next((dictionary_dir / "Stage 1 Gold OCR").rglob("*_GOLD_flat.txt"))
+    dict_legend = dictionary_legend_path(dictionary_dir)
+    page_legend = out_root / "Canala-English" / "page_1_legend.yaml"
+    save_legend(dict_legend, {"can": "Canala"})
+    save_legend(page_legend, {"eng": "English"})
+    resolved = resolve_legend_path(dictionary_dir, gold, out_root)
+    assert resolved == dict_legend
+
+
+def test_resolve_legend_path_falls_back_to_page_legend(tmp_path):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "hello\n"})
+    out_root = tmp_path / "outputs"
+    gold = next((dictionary_dir / "Stage 1 Gold OCR").rglob("*_GOLD_flat.txt"))
+    page_legend = out_root / "Canala-English" / "page_1_legend.yaml"
+    save_legend(page_legend, {"can": "Canala"})
+    resolved = resolve_legend_path(dictionary_dir, gold, out_root)
+    assert resolved == page_legend
+
+
+def test_label_dictionary_legend_stage_writes_yaml(tmp_path, monkeypatch):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "akɔɔtee small\n"})
+
+    monkeypatch.setattr(
+        tier2_labeler,
+        "complete_with_usage",
+        lambda **kwargs: ("LANGUAGES:\ncan = Canala\neng = English\n", {}),
+    )
+    results = label_dictionary(
+        dictionary_dir,
+        output_root=tmp_path / "outputs",
+        stage="legend",
+    )
+    assert results[0].status == "legend_ok"
+    legend_path = dictionary_dir / "language_legend.yaml"
+    assert legend_path.is_file()
+    assert load_legend(legend_path) == {"can": "Canala", "eng": "English"}
+
+
+def test_label_dictionary_legend_stage_page_scope_writes_per_page(tmp_path, monkeypatch):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "akɔɔtee small\n"})
+
+    monkeypatch.setattr(
+        tier2_labeler,
+        "complete_with_usage",
+        lambda **kwargs: ("LANGUAGES:\ncan = Canala\neng = English\n", {}),
+    )
+    results = label_dictionary(
+        dictionary_dir,
+        output_root=tmp_path / "outputs",
+        stage="legend",
+        legend_scope="page",
+    )
+    assert results[0].status == "legend_ok"
+    legend_path = tmp_path / "outputs" / "Canala-English" / "page_1_legend.yaml"
+    assert legend_path.is_file()
+
+
+def test_label_dictionary_tagging_stage_requires_legend(tmp_path, monkeypatch):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "akɔɔtee small\n"})
+    out_root = tmp_path / "outputs"
+
+    calls = []
+
+    def fake_llm(**kwargs):
+        calls.append(1)
+        return "TAGGED:\n<can>akɔɔtee</can> <eng>small</eng>\n", {}
+
+    monkeypatch.setattr(tier2_labeler, "complete_with_usage", fake_llm)
+    results = label_dictionary(dictionary_dir, output_root=out_root, stage="tagging")
+    assert results[0].status == "failed"
+    assert "missing legend file" in (results[0].error or "")
+    assert calls == []
+
+
+def test_label_dictionary_tagging_stage_uses_saved_legend(tmp_path, monkeypatch):
+    dictionary_dir = _make_dictionary(tmp_path, {1: "akɔɔtee small\n"})
+    out_root = tmp_path / "outputs"
+    save_legend(
+        dictionary_dir / "language_legend.yaml",
+        {"can": "Canala", "eng": "English"},
+    )
+
+    monkeypatch.setattr(
+        tier2_labeler,
+        "complete_with_usage",
+        lambda **kwargs: ("TAGGED:\n<can>akɔɔtee</can> <eng>small</eng>\n", {}),
+    )
+    results = label_dictionary(
+        dictionary_dir,
+        output_root=out_root,
+        stage="tagging",
+    )
+    assert results[0].status == "ok"
+    assert results[0].page_map is not None
+    assert _lang_at(results[0].page_map, "akɔɔtee small\n", "akɔɔtee") == "Canala"
 
 
 def _make_dictionary(root, pages):

@@ -16,7 +16,7 @@ Recovery is deterministic and never trusts the model blindly:
    ``Levenshtein.opcodes`` and carry languages across; if drift exceeds ``max_drift``
    the page is rejected (:class:`Tier2DriftError`) for manual labeling rather than
    emitting a corrupt map.
-3. Whitespace codepoints are forced to ``SPACE`` for parity with the Tier-1 labeler.
+3. Whitespace codepoints are forced to ``SPACE`` for parity with :mod:`script_labeler`.
 
 No third-party dependencies beyond ``python-Levenshtein`` and ``mudidi.schemas``.
 """
@@ -185,7 +185,7 @@ def recover_page_map(
                 f"de-tagged LLM output for page {page} drifted from gold by "
                 f"{drift:.1%} (> {max_drift:.0%}); flag for manual labeling"
             )
-    # Whitespace is SPACE, matching the Tier-1 labeler.
+    # Whitespace is SPACE, matching script_labeler.
     char_lang = [
         SPACE if ch.isspace() else lang for ch, lang in zip(raw_gold, char_lang)
     ]

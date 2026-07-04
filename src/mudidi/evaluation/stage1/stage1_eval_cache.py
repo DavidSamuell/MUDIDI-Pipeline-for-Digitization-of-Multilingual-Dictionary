@@ -8,6 +8,10 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
+from mudidi.evaluation.stage1.per_language_metrics import (
+    PageLanguageReport,
+    PerLanguageMetrics,
+)
 from mudidi.evaluation.stage1.stage1_metrics import (
     CharacterQualityMetrics,
     MarkupQualityMetrics,
@@ -17,7 +21,53 @@ from mudidi.evaluation.stage1.stage1_metrics import (
 )
 
 CACHE_FILE_NAME = "stage1_eval_cache.json"
-CACHE_FORMAT_VERSION = 12  # v12: eval-flat reports OmniDocBench ReadOrderEdit
+CACHE_FORMAT_VERSION = 13  # v13: adds per-language-script (per_language) metrics
+
+
+def _per_language_report_to_cache_dict(report: Optional[PageLanguageReport]) -> Optional[dict]:
+    """Serialize a ``PageLanguageReport`` (raw values, not display-rounded)."""
+    if report is None:
+        return None
+    return {
+        "page_id": report.page_id,
+        "blended_gcer": report.blended_gcer,
+        "blended_grapheme_edits": report.blended_grapheme_edits,
+        "blended_graphemes_gold": report.blended_graphemes_gold,
+        "per_language": {
+            language: {
+                "language": metrics.language,
+                "gcer": metrics.gcer,
+                "wer": metrics.wer,
+                "text_edit": metrics.text_edit,
+                "total_graphemes_gold": metrics.total_graphemes_gold,
+                "total_graphemes_pred": metrics.total_graphemes_pred,
+                "total_grapheme_edits": metrics.total_grapheme_edits,
+                "total_words_gold": metrics.total_words_gold,
+                "total_word_edits": metrics.total_word_edits,
+                "attr_tp": metrics.attr_tp,
+                "attr_fp": metrics.attr_fp,
+                "attr_fn": metrics.attr_fn,
+            }
+            for language, metrics in report.per_language.items()
+        },
+    }
+
+
+def _per_language_report_from_cache_dict(
+    d: Optional[dict],
+) -> Optional[PageLanguageReport]:
+    if d is None:
+        return None
+    return PageLanguageReport(
+        page_id=d.get("page_id", ""),
+        per_language={
+            language: PerLanguageMetrics(**metrics)
+            for language, metrics in d.get("per_language", {}).items()
+        },
+        blended_gcer=float(d.get("blended_gcer", 0.0)),
+        blended_grapheme_edits=int(d.get("blended_grapheme_edits", 0)),
+        blended_graphemes_gold=int(d.get("blended_graphemes_gold", 0)),
+    )
 
 
 def _file_fingerprint(path: Path) -> Tuple[int, int]:
@@ -59,6 +109,7 @@ def stage1_metrics_to_cache_dict(m: Stage1Metrics) -> dict:
             "edit_distance": m.read_order.edit_distance,
             "max_length": m.read_order.max_length,
         },
+        "per_language": _per_language_report_to_cache_dict(m.per_language),
     }
 
 
@@ -79,6 +130,7 @@ def stage1_metrics_from_cache_dict(d: dict) -> Stage1Metrics:
             edit_distance=int(ro.get("edit_distance", 0)),
             max_length=int(ro.get("max_length", 0)),
         ),
+        per_language=_per_language_report_from_cache_dict(d.get("per_language")),
     )
 
 
@@ -90,6 +142,7 @@ class CachedEntry:
     character_alignment: str
     format_version: int
     metrics: Stage1Metrics
+    per_language_script: bool = False
 
 
 class Stage1EvalCache:
@@ -145,6 +198,7 @@ class Stage1EvalCache:
                 character_alignment=str(blob.get("character_alignment", "quick_match")),
                 format_version=int(blob.get("format_version", 0)),
                 metrics=m,
+                per_language_script=bool(blob.get("per_language_script", False)),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -157,6 +211,7 @@ class Stage1EvalCache:
         gold_path: Path,
         alignment_threshold: float,
         character_alignment: str,
+        per_language_script: bool = False,
     ) -> bool:
         e = self.get_entry(experiment, page_id)
         if e is None:
@@ -166,6 +221,10 @@ class Stage1EvalCache:
         if e.alignment_threshold != alignment_threshold:
             return False
         if e.character_alignment != character_alignment:
+            return False
+        # A page cached without --per-language-script has ``per_language=None``;
+        # re-evaluate rather than silently reuse that stale (unpopulated) entry.
+        if per_language_script and not e.per_language_script:
             return False
         try:
             if e.pred_fp != _file_fingerprint(pred_path):
@@ -185,6 +244,7 @@ class Stage1EvalCache:
         alignment_threshold: float,
         character_alignment: str,
         metrics: Stage1Metrics,
+        per_language_script: bool = False,
     ) -> None:
         self._data.setdefault(experiment, {})
         self._data[experiment][page_id] = {
@@ -193,6 +253,7 @@ class Stage1EvalCache:
             "alignment_threshold": alignment_threshold,
             "character_alignment": character_alignment,
             "format_version": CACHE_FORMAT_VERSION,
+            "per_language_script": per_language_script,
             "metrics": stage1_metrics_to_cache_dict(metrics),
         }
 
@@ -228,6 +289,7 @@ class Stage1EvalCache:
         *,
         alignment_threshold: float,
         character_alignment: str,
+        per_language_script: bool = False,
     ) -> OrderedDict[str, List[Stage1Metrics]]:
         """Group cached metrics by experiment for tasks with valid cache entries."""
         by_exp: OrderedDict[str, List[Stage1Metrics]] = OrderedDict()
@@ -239,6 +301,7 @@ class Stage1EvalCache:
                 task.gold_path,
                 alignment_threshold,
                 character_alignment,
+                per_language_script,
             ):
                 continue
             entry = self.get_entry(task.experiment, task.page_id)

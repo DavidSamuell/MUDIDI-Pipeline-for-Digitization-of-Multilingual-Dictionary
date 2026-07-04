@@ -266,7 +266,19 @@ def main() -> int:
 
     summary_csv = out / "stage2_mdf_eval_summary.csv"
     evaluator.generate_summary_csv(results_by_exp, summary_csv)
+    per_lang_script_detailed_csv = out / "stage2_mdf_eval_per_language_script_detailed.csv"
+    evaluator.generate_per_language_script_detailed_csv(
+        results_by_exp,
+        per_lang_script_detailed_csv,
+    )
+    per_lang_script_summary_csv = out / "stage2_mdf_eval_per_language_script_summary.csv"
+    evaluator.generate_per_language_script_summary_csv(
+        results_by_exp,
+        per_lang_script_summary_csv,
+    )
     print(f"\nSummary CSV: {summary_csv}")
+    print(f"Per-language-script detailed CSV: {per_lang_script_detailed_csv}")
+    print(f"Per-language-script summary CSV: {per_lang_script_summary_csv}")
     print(f"Reports under: {out}")
 
     if args.baseline_summary or args.baseline_experiment:

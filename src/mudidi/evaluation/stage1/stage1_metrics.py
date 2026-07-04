@@ -8,6 +8,9 @@ Three evaluation dimensions (flat eval reports all three):
 """
 
 from dataclasses import dataclass, field
+from typing import Optional
+
+from mudidi.evaluation.stage1.per_language_metrics import PageLanguageReport
 
 
 @dataclass
@@ -97,3 +100,4 @@ class Stage1Metrics:
         default_factory=MarkupQualityMetrics
     )
     read_order: ReadOrderMetrics = field(default_factory=ReadOrderMetrics)
+    per_language: Optional[PageLanguageReport] = None

@@ -5,8 +5,9 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal, Optional, Union
 
+from mudidi.evaluation.stage1 import per_language_metrics
 from mudidi.evaluation.stage1.stage1_metrics import Stage1Metrics
 
 MetricsProfile = Literal["full", "minimal"]
@@ -40,6 +41,7 @@ class Stage1ReportWriter:
         metrics_profile: MetricsProfile = "full",
         *,
         include_read_order: bool = False,
+        include_per_language_script: bool = False,
     ) -> None:
         if metrics_profile not in ("full", "minimal"):
             raise ValueError(
@@ -47,6 +49,7 @@ class Stage1ReportWriter:
             )
         self.metrics_profile = metrics_profile
         self.include_read_order = include_read_order
+        self.include_per_language_script = include_per_language_script
 
     def _metric_csv_cols(self) -> List[str]:
         cols = (
@@ -66,7 +69,27 @@ class Stage1ReportWriter:
         return {col: row[col] for col in columns}
 
     @staticmethod
-    def metrics_to_dict(m: Stage1Metrics, *, include_read_order: bool = False) -> dict:
+    def _per_language_script_to_dict(m: Stage1Metrics) -> Union[dict, None]:
+        report = m.per_language
+        if report is None:
+            return None
+        return {
+            "blended_gcer": round(report.blended_gcer, 6),
+            "blended_grapheme_edits": report.blended_grapheme_edits,
+            "blended_graphemes_gold": report.blended_graphemes_gold,
+            "per_language": {
+                language: Stage1ReportWriter._per_language_script_metrics_dict(metrics)
+                for language, metrics in sorted(report.per_language.items())
+            },
+        }
+
+    @staticmethod
+    def metrics_to_dict(
+        m: Stage1Metrics,
+        *,
+        include_read_order: bool = False,
+        include_per_language_script: bool = False,
+    ) -> dict:
         cq = m.character_quality
         mq = m.markup_quality
         out: dict = {
@@ -118,6 +141,8 @@ class Stage1ReportWriter:
                 "edit_distance": ro.edit_distance,
                 "max_length": ro.max_length,
             }
+        if include_per_language_script:
+            out["per_language_script"] = Stage1ReportWriter._per_language_script_to_dict(m)
         return out
 
     def generate_json_report(
@@ -129,7 +154,11 @@ class Stage1ReportWriter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = [
-            self.metrics_to_dict(m, include_read_order=self.include_read_order)
+            self.metrics_to_dict(
+                m,
+                include_read_order=self.include_read_order,
+                include_per_language_script=self.include_per_language_script,
+            )
             for m in results
         ]
         if len(results) > 1:
@@ -191,6 +220,147 @@ class Stage1ReportWriter:
             "ReadOrderEdit": round(ro.read_order_edit, 6),
         }
 
+    def _per_language_script_csv_cols(self) -> List[str]:
+        return [
+            "language",
+            "page",
+            "language_script",
+            "GCER",
+            "WER",
+            "TextEdit",
+            "total_graphemes_gold",
+            "total_graphemes_pred",
+            "total_grapheme_edits",
+            "total_words_gold",
+            "total_word_edits",
+            "precision",
+            "recall",
+            "f1",
+        ]
+
+    @staticmethod
+    def _per_language_script_metrics_dict(metrics: "per_language_metrics.PerLanguageMetrics") -> dict:
+        return {
+            "GCER": round(metrics.gcer, 6),
+            "WER": round(metrics.wer, 6),
+            "TextEdit": round(metrics.text_edit, 6),
+            "total_graphemes_gold": metrics.total_graphemes_gold,
+            "total_graphemes_pred": metrics.total_graphemes_pred,
+            "total_grapheme_edits": metrics.total_grapheme_edits,
+            "total_words_gold": metrics.total_words_gold,
+            "total_word_edits": metrics.total_word_edits,
+            "precision": round(metrics.precision, 4),
+            "recall": round(metrics.recall, 4),
+            "f1": round(metrics.f1, 4),
+        }
+
+    @classmethod
+    def _per_language_script_csv_rows(cls, m: Stage1Metrics) -> List[dict]:
+        """One row per ``(page_id, language_script)``; empty when unpopulated.
+
+        ``m.per_language`` is ``None`` when per-language-script eval wasn't
+        requested, the page has no co-located gold ``*_lang.json``, or the span
+        map failed validation -- all silently contribute zero rows here.
+        """
+        if m.per_language is None:
+            return []
+        parsed = cls._parse_page_id(m.page_id)
+        source_language = parsed[0] if parsed is not None else ""
+        page = parsed[1] if parsed is not None else m.page_id
+        return [
+            {
+                "language": source_language,
+                "page": page,
+                "language_script": language,
+                **cls._per_language_script_metrics_dict(metrics),
+            }
+            for language, metrics in sorted(m.per_language.per_language.items())
+        ]
+
+    def generate_per_language_script_csv(
+        self,
+        results: list[Stage1Metrics],
+        output_path: str | Path,
+    ) -> None:
+        """Write one CSV row per ``(page_id, language_script)`` across *results*.
+
+        Pages without ``per_language`` populated contribute no rows (see
+        :meth:`_per_language_script_csv_rows`).
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        rows: List[dict] = []
+        for m in results:
+            rows.extend(self._per_language_script_csv_rows(m))
+        self._write_csv(rows, self._per_language_script_csv_cols(), output_path)
+
+    def _per_language_script_detailed_csv_cols(self) -> List[str]:
+        return ["experiment", *self._per_language_script_csv_cols()]
+
+    def generate_per_language_script_detailed_csv(
+        self,
+        results_by_exp: Dict[str, List[Stage1Metrics]],
+        output_path: str | Path,
+    ) -> None:
+        """Write one row per ``(experiment, page_id, language_script)``.
+
+        Language-script counterpart to :meth:`generate_detailed_csv` -- every
+        experiment's per-page per-language breakdown lands in one file instead
+        of a separate ``per_language_script.csv`` per experiment folder.
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        rows: List[dict] = [
+            {"experiment": exp, **row}
+            for exp, results in results_by_exp.items()
+            for m in results
+            for row in self._per_language_script_csv_rows(m)
+        ]
+        self._write_csv(rows, self._per_language_script_detailed_csv_cols(), output_path)
+
+    def generate_per_language_script_summary_csv(
+        self,
+        results_by_exp: Dict[str, List[Stage1Metrics]],
+        output_path: str | Path,
+    ) -> None:
+        """Write one row per ``(experiment, language, language_script)``.
+
+        Language-script counterpart to :meth:`generate_summary_csv` -- "how
+        well does model X do on script Y within dictionary/language Z, on
+        average across its pages" rather than a per-page breakdown.
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        cols = [
+            "experiment",
+            *[
+                c
+                for c in self._per_language_script_csv_cols()
+                if c != "page" and not c.startswith("total_")
+            ],
+        ]
+        rows: List[dict] = []
+        for exp, results in results_by_exp.items():
+            reports_by_language: Dict[str, List[per_language_metrics.PageLanguageReport]] = {}
+            for metrics in results:
+                if metrics.per_language is None:
+                    continue
+                parsed = self._parse_page_id(metrics.page_id)
+                source_language = parsed[0] if parsed is not None else ""
+                reports_by_language.setdefault(source_language, []).append(metrics.per_language)
+
+            for source_language, reports in sorted(reports_by_language.items()):
+                pooled = per_language_metrics.aggregate(reports)
+                for language_script, metrics in sorted(pooled.items()):
+                    row = {
+                        "experiment": exp,
+                        "language": source_language,
+                        "language_script": language_script,
+                        **self._per_language_script_metrics_dict(metrics),
+                    }
+                    rows.append(self._pick_columns(row, cols))
+        self._write_csv(rows, cols, output_path)
+
     def _write_csv(self, rows: list[dict], columns: list[str], path: Path) -> None:
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=columns)
@@ -243,6 +413,11 @@ class Stage1ReportWriter:
                 order_rows,
                 self._order_csv_cols(),
                 output_dir / "structure_preservation.csv",
+            )
+        if self.include_per_language_script:
+            self.generate_per_language_script_csv(
+                results,
+                output_dir / "per_language_script.csv",
             )
 
     def _detailed_csv_cols(self) -> List[str]:
@@ -545,6 +720,31 @@ class Stage1ReportWriter:
                     f"    ReadOrderEdit: {ro.read_order_edit:.4f}",
                 ]
             )
+        if self.include_per_language_script:
+            lines.extend(self._format_per_language_script(m.per_language))
+        return lines
+
+    @staticmethod
+    def _per_language_script_table(
+        per_language: Dict[str, per_language_metrics.PerLanguageMetrics],
+    ) -> list[str]:
+        header = f"    {'language-script':<20}{'GCER':>8}{'WER':>8}{'TextEdit':>10}{'gold_g':>8}"
+        lines = [header]
+        for language in sorted(per_language):
+            metrics = per_language[language]
+            lines.append(
+                f"    {language:<20}{metrics.gcer:>8.3f}{metrics.wer:>8.3f}"
+                f"{metrics.text_edit:>10.3f}{metrics.total_graphemes_gold:>8}"
+            )
+        return lines
+
+    def _format_per_language_script(
+        self, report: Optional[per_language_metrics.PageLanguageReport]
+    ) -> list[str]:
+        if report is None:
+            return []
+        lines = ["", "  Per-Language-Script Quality:"]
+        lines.extend(self._per_language_script_table(report.per_language))
         return lines
 
     def _format_aggregate(self, results: list[Stage1Metrics]) -> list[str]:
@@ -572,6 +772,19 @@ class Stage1ReportWriter:
                     f"    ReadOrderEdit: {agg['read_order']['ReadOrderEdit']:.4f}",
                 ]
             )
+        if self.include_per_language_script:
+            lines.extend(self._format_per_language_script_aggregate(results))
+        return lines
+
+    def _format_per_language_script_aggregate(
+        self, results: list[Stage1Metrics]
+    ) -> list[str]:
+        reports = [m.per_language for m in results if m.per_language is not None]
+        if not reports:
+            return []
+        pooled = per_language_metrics.aggregate(reports)
+        lines = ["", "  Per-Language-Script Quality (aggregate):"]
+        lines.extend(self._per_language_script_table(pooled))
         return lines
 
     @staticmethod

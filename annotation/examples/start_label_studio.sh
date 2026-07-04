@@ -18,10 +18,35 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Load .env early so PUBLIC_URL and tokens are available before Label Studio starts.
+if [ -f "$REPO_ROOT/.env" ]; then
+  while IFS='=' read -r key val || [ -n "$key" ]; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    val="${val%\"}"
+    val="${val#\"}"
+    val="${val%\'}"
+    val="${val#\'}"
+    export "$key=$val" 2>/dev/null || true
+  done < "$REPO_ROOT/.env"
+fi
+
 HOST="${HOST:-localhost}"
 PORT="${PORT:-8080}"
 LS_URL="http://$HOST:$PORT"
 OVERWRITE="${OVERWRITE:-0}"
+
+# Public URL when exposed via Cloudflare Tunnel, ngrok, etc. (fixes CSRF on login/save).
+PUBLIC_URL="${PUBLIC_URL:-}"
+PUBLIC_URL="${PUBLIC_URL%/}"
+if [ -n "$PUBLIC_URL" ]; then
+  export CSRF_TRUSTED_ORIGINS="${CSRF_TRUSTED_ORIGINS:-$PUBLIC_URL}"
+  export LABEL_STUDIO_HOST="${LABEL_STUDIO_HOST:-$PUBLIC_URL}"
+  export USE_X_FORWARDED_HOST="${USE_X_FORWARDED_HOST:-true}"
+  export USE_X_FORWARDED_PORT="${USE_X_FORWARDED_PORT:-true}"
+  export SECURE_PROXY_SSL_HEADER="${SECURE_PROXY_SSL_HEADER:-HTTP_X_FORWARDED_PROTO,https}"
+fi
+BROWSER_URL="${PUBLIC_URL:-$LS_URL}"
 
 # Label Studio data dir (SQLite DB + uploads) — kept outside the repo.
 export LABEL_STUDIO_BASE_DATA_DIR="${LABEL_STUDIO_BASE_DATA_DIR:-$HOME/.label-studio-mudidi}"
@@ -43,7 +68,11 @@ else
   echo "label-studio not on PATH — using 'uvx label-studio' (downloads on first run)…"
 fi
 
-echo "Starting Label Studio at $LS_URL …"
+if [ -n "$PUBLIC_URL" ]; then
+  echo "Starting Label Studio at $LS_URL (public: $PUBLIC_URL) …"
+else
+  echo "Starting Label Studio at $LS_URL …"
+fi
 $LS_CMD start --host "$HOST" --port "$PORT" &
 LS_PID=$!
 
@@ -70,21 +99,8 @@ for i in $(seq 1 60); do
 done
 
 # ---------------------------------------------------------------------------
-# 3. Resolve the API token (env var > .env file > saved file > prompt).
+# 3. Resolve the API token (env var > .env > saved file > prompt).
 # ---------------------------------------------------------------------------
-# Load LS_ACCESS_TOKEN / LABEL_STUDIO_TOKEN from the repo .env if present.
-if [ -f "$REPO_ROOT/.env" ]; then
-  while IFS='=' read -r key val; do
-    [[ "$key" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "$key" ]] && continue
-    val="${val%\"}"
-    val="${val#\"}"
-    val="${val%\'}"
-    val="${val#\'}"
-    export "$key=$val" 2>/dev/null || true
-  done < "$REPO_ROOT/.env"
-fi
-
 if [ -n "${LABEL_STUDIO_TOKEN:-}" ]; then
   TOKEN="$LABEL_STUDIO_TOKEN"
   echo "Using token from LABEL_STUDIO_TOKEN env var."
@@ -99,9 +115,9 @@ else
   echo "─────────────────────────────────────────────────────────"
   echo "  First-time setup: Label Studio needs an API token."
   echo ""
-  echo "  1. Open $LS_URL in your browser."
+  echo "  1. Open $BROWSER_URL in your browser."
   echo "  2. Create an account (or sign in)."
-  echo "  3. Go to $LS_URL/user/account"
+  echo "  3. Go to $BROWSER_URL/user/account"
   echo "  4. Copy your API Token."
   echo "─────────────────────────────────────────────────────────"
   echo -n "Paste your Label Studio API token here and press Enter: "
@@ -110,7 +126,11 @@ else
     echo "No token entered — skipping project import. Projects can be imported later with:"
     echo "  uv run python annotation/label_studio/setup_ner_projects.py --ls-token <token>"
     echo ""
-    echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+    if [ -n "$PUBLIC_URL" ]; then
+      echo "Label Studio local: $LS_URL | public: $PUBLIC_URL — press Ctrl+C to stop."
+    else
+      echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+    fi
     wait $LS_PID
     exit 0
   fi
@@ -139,7 +159,13 @@ if ! uv run python annotation/label_studio/setup_ner_projects.py \
 fi
 
 echo ""
-echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+if [ -n "$PUBLIC_URL" ]; then
+  echo "Label Studio local: $LS_URL"
+  echo "Public URL (share with annotators): $PUBLIC_URL"
+  echo "Press Ctrl+C to stop."
+else
+  echo "Label Studio is running at $LS_URL — press Ctrl+C to stop."
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Keep Label Studio in the foreground.

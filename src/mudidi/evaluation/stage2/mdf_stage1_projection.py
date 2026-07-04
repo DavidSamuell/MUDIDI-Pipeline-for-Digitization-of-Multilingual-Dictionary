@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import logging
 import re
 import unicodedata
@@ -25,8 +27,10 @@ from mudidi.evaluation.stage1.language_projection import project_clean_languages
 from mudidi.evaluation.stage1.tag_parser import strip_tags
 from mudidi.evaluation.stage2.mdf_parser import MdfRecord, parse_mdf
 from mudidi.schemas.language_span import META, SPACE, PageLanguageMap
+
 logger = logging.getLogger(__name__)
 
+PROJECTION_VERSION = "mdf-stage1-lang-projection-v1"
 _WHITESPACE_RE = re.compile(r"\s+")
 _TAG_RE = re.compile(r"</?[bi]>", re.IGNORECASE)
 _STRUCTURAL_MARKERS = {"sn"}
@@ -462,6 +466,77 @@ def audit_dataset(
     return all_results
 
 
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _projection_to_json_dict(result: MdfValueProjection) -> dict:
+    return {
+        "record_index": result.record_index,
+        "line_index": result.line_index,
+        "marker": result.marker,
+        "value": strip_tags(result.value),
+        "normalized_value": result.normalized_value,
+        "status": result.status,
+        "primary_language": result.primary_language,
+        "language_counts": dict(sorted(result.language_counts.items())),
+        "stage1_source_ranges": [
+            {"start": start, "end": end} for start, end in result.source_ranges
+        ],
+    }
+
+
+def write_dataset_json(
+    dataset_dir: str | Path,
+    *,
+    dictionaries: set[str] | None = None,
+) -> list[Path]:
+    """Write one projection JSON beside each dataset Stage 2 gold MDF file."""
+    dataset_dir = Path(dataset_dir)
+    written: list[Path] = []
+    for dictionary, mdf_path in iter_dataset_gold_mdf(dataset_dir):
+        if dictionaries is not None and dictionary not in dictionaries:
+            continue
+        page_id = mdf_path.parent.name
+        stage1_gold_path, lang_map_path = _stage1_paths_for_mdf(
+            dataset_dir, dictionary, page_id
+        )
+        if not stage1_gold_path.is_file() or not lang_map_path.is_file():
+            logger.warning(
+                "Skipping %s %s JSON: missing Stage 1 gold or lang map",
+                dictionary,
+                page_id,
+            )
+            continue
+        fields = project_mdf_file_to_stage1(
+            dictionary=dictionary,
+            mdf_path=mdf_path,
+            stage1_gold_path=stage1_gold_path,
+            lang_map_path=lang_map_path,
+        )
+        page_number = int(page_id.removeprefix("page_")) if page_id.startswith("page_") else 0
+        payload = {
+            "dictionary": dictionary,
+            "page": page_number,
+            "page_id": page_id,
+            "projection_version": PROJECTION_VERSION,
+            "gold_mdf_sha": _sha256_file(mdf_path),
+            "stage1_gold_sha": _sha256_file(stage1_gold_path),
+            "stage1_lang_map_sha": _sha256_file(lang_map_path),
+            "gold_mdf_path": str(mdf_path),
+            "stage1_gold_path": str(stage1_gold_path),
+            "stage1_lang_map_path": str(lang_map_path),
+            "fields": [_projection_to_json_dict(result) for result in fields],
+        }
+        out_path = mdf_path.with_name(f"{page_id}_mdf_lang_projection.json")
+        out_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        written.append(out_path)
+    return written
+
+
 def summarize(results: Sequence[MdfValueProjection]) -> Counter[str]:
     """Count projection statuses."""
     return Counter(result.status for result in results)
@@ -557,6 +632,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Exit non-zero if any MDF value cannot be projected.",
     )
+    parser.add_argument(
+        "--write-dataset-json",
+        action="store_true",
+        help=(
+            "Write page_<N>_mdf_lang_projection.json beside each Stage 2 gold MDF "
+            "file in the dataset."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args(argv)
 
@@ -575,6 +658,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.output_csv is not None:
         write_csv(results, args.output_csv)
         print(f"\nDetailed CSV: {args.output_csv}")
+    if args.write_dataset_json:
+        written = write_dataset_json(
+            args.dataset_dir,
+            dictionaries=set(args.dictionaries) if args.dictionaries else None,
+        )
+        print(f"Dataset projection JSON files written: {len(written)}")
     if args.fail_on_unmapped and any(result.status == "unmapped" for result in results):
         return 1
     return 0

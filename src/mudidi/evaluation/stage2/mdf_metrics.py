@@ -97,6 +97,7 @@ class MdfPageMetrics:
         default_factory=CharacterQualityMetrics
     )
     language_quality: Dict[str, CharacterQualityMetrics] = field(default_factory=dict)
+    language_script_quality: Dict[str, CharacterQualityMetrics] = field(default_factory=dict)
     marker_confusion: Dict[str, Dict[str, int]] = field(default_factory=dict)
     record_samples: List[RecordSample] = field(default_factory=list)
     marker_error_samples: List[MarkerErrorSample] = field(default_factory=list)

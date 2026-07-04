@@ -2,10 +2,31 @@
 
 Attributes every Stage 1 grapheme/word edit to the language of the gold unit it
 aligns to, using the page's :class:`~mudidi.schemas.language_span.PageLanguageMap`.
-Per-language grapheme edits and gold graphemes pool back to the blended
-``compute_character_quality`` for the page -- the **consistency oracle** -- because
-both use the identical ``casefold -> grapheme -> Levenshtein`` chain on the same
-collapsed gold/pred strings.
+
+Two kinds of content are excluded from per-language-script scoring, for two
+different reasons:
+
+- **Punctuation + whitespace** are *physically stripped* from both the gold and
+  pred scoring strings before any grapheme/word derivation -- symmetric and
+  content-derivable (a period is a period on either side), the same technique
+  ``tag_parser.strip_tags`` already uses for markup.
+- **``SPACE``/``META`` labels** are *not* physically removed from gold before
+  alignment -- doing so would make the prediction's real transcription of meta
+  content (running heads, editorial markers) look like a giant spurious
+  insertion, misattributed to whichever real language-script bucket sits next
+  to it. Instead, ``SPACE``/``META`` buckets are allowed to form naturally
+  during alignment/bucketing and are dropped from the final
+  :class:`~mudidi.evaluation.stage1.per_language_metrics.PageLanguageReport`
+  afterwards.
+
+Because ``SPACE``/``META`` buckets are excluded from the final report, the
+per-language grapheme edits/gold no longer pool back to the whole-page
+``compute_character_quality`` blended metric (that used to be true and was
+described as a "consistency oracle" -- it no longer holds by construction).
+``blended_grapheme_edits`` / ``blended_graphemes_gold`` / ``blended_gcer`` on the
+returned report are instead recomputed as the sum over the *remaining* (real
+language-script) buckets only -- "combined stats across real language-script
+tags," a different and narrower question than the whole-page GCER.
 
 Two entry points:
 
@@ -37,8 +58,10 @@ codepoints a cluster spans.
 
 from __future__ import annotations
 
+import dataclasses
+import unicodedata
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
 import grapheme
 import jiwer
@@ -80,6 +103,18 @@ def collapsed_clean_text(path: str | Path) -> str:
     return normalize_line_text(strip_tags(collapsed))
 
 
+def lang_map_path_for_gold(gold_path: str | Path) -> Path:
+    """Return the ``*_lang.json`` path co-located with a gold flat file.
+
+    Follows the ``Stage 1 Gold OCR/<stem>/<stem>_lang.json`` convention (same
+    ``stem = gold_path.parent.name`` rule used by
+    :func:`~mudidi.evaluation.stage1.stage1_task_discovery.discover_dataset_tasks`).
+    Does not check existence -- callers decide what to do when the file is absent.
+    """
+    gold_path = Path(gold_path)
+    return gold_path.parent / f"{gold_path.parent.name}_lang.json"
+
+
 def _source_language(lang_map: PageLanguageMap) -> str:
     for span in lang_map.spans:
         if span.language not in (SPACE, META):
@@ -100,6 +135,69 @@ def _encode_graphemes(gg: Sequence[str], pg: Sequence[str]) -> Tuple[str, str]:
         return "".join(out)
 
     return encode(gg), encode(pg)
+
+
+def _is_scoring_noise(ch: str) -> bool:
+    """Whitespace or punctuation: symmetric, content-derivable on both gold and pred.
+
+    Physically stripped from the character-level (grapheme) scoring strings before
+    diffing -- a period is a period on either side, so removing it can't create a
+    spurious edit, unlike ``SPACE``/``META`` labels (see module docstring).
+    """
+    return ch.isspace() or unicodedata.category(ch).startswith("P")
+
+
+def _is_scoring_punct(ch: str) -> bool:
+    """Punctuation only (not whitespace).
+
+    Used to build the word-level scoring strings: punctuation is stripped so
+    trailing/standalone punctuation doesn't inflate WER, but whitespace is kept
+    because it is the delimiter ``word_languages``/jiwer split words on.
+    """
+    return unicodedata.category(ch).startswith("P")
+
+
+def _filter_text(text: str, noise: Callable[[str], bool]) -> str:
+    """Drop characters where ``noise(ch)`` is true."""
+    return "".join(ch for ch in text if not noise(ch))
+
+
+def _filter_text_with_langs(
+    text: str, langs: Sequence[str], noise: Callable[[str], bool]
+) -> Tuple[str, List[str]]:
+    """Drop characters where ``noise(ch)`` is true, keeping ``text``/``langs`` aligned."""
+    kept_chars: List[str] = []
+    kept_langs: List[str] = []
+    for ch, lang in zip(text, langs):
+        if not noise(ch):
+            kept_chars.append(ch)
+            kept_langs.append(lang)
+    return "".join(kept_chars), kept_langs
+
+
+def _drop_reserved_buckets(report: PageLanguageReport) -> PageLanguageReport:
+    """Drop ``SPACE``/``META`` buckets; recompute blended totals from real buckets.
+
+    ``SPACE``/``META`` are allowed to accumulate naturally during alignment (see
+    module docstring), then dropped here so they never appear in the final report.
+    ``blended_*`` fields are redefined as the sum over the remaining real
+    language-script buckets only -- not the whole-page ``compute_character_quality``
+    GCER, which this report no longer needs to match.
+    """
+    per_language = {
+        language: metrics
+        for language, metrics in report.per_language.items()
+        if language not in (SPACE, META)
+    }
+    blended_edits = sum(m.total_grapheme_edits for m in per_language.values())
+    blended_gold = sum(m.total_graphemes_gold for m in per_language.values())
+    return dataclasses.replace(
+        report,
+        per_language=per_language,
+        blended_grapheme_edits=blended_edits,
+        blended_graphemes_gold=blended_gold,
+        blended_gcer=blended_edits / blended_gold if blended_gold else 0.0,
+    )
 
 
 class _Accumulator:
@@ -255,8 +353,10 @@ def compute_per_language_quality(
         page_id: Optional page identifier for the report.
 
     Returns:
-        A :class:`PageLanguageReport` whose per-language grapheme counts pool back to
-        the blended ``compute_character_quality`` totals for the same page.
+        A :class:`PageLanguageReport` with ``SPACE``/``META`` buckets excluded and
+        ``blended_*`` fields summed over the remaining real language-script buckets
+        (see module docstring -- this no longer equals the whole-page
+        ``compute_character_quality`` GCER).
 
     Raises:
         SpanMapError: if the span map does not bind to / fully cover ``raw_gold``.
@@ -269,23 +369,30 @@ def compute_per_language_quality(
 
     gc = casefold_letters_for_eval(gold_clean)
     pc = casefold_letters_for_eval(pred_clean)
-    gg = list(grapheme.graphemes(gc))
-    pg = list(grapheme.graphemes(pc))
-
-    # Blended page metric, computed independently of the per-language attribution.
-    encoded_g, encoded_p = _encode_graphemes(gg, pg)
-    blended_edits = Levenshtein.distance(encoded_g, encoded_p)
-    blended_gold = len(gg)
-
     clean_lang = project_clean_languages(raw_gold, raw_char_lang, gc)
-    gold_langs = grapheme_languages(gc, clean_lang)
+
+    # -- Grapheme (character-level) scoring: punctuation + whitespace physically
+    # stripped from both sides before diffing (safe -- symmetric/content-derivable).
+    gc_chars, clean_lang_chars = _filter_text_with_langs(gc, clean_lang, _is_scoring_noise)
+    pc_chars = _filter_text(pc, _is_scoring_noise)
+    gg = list(grapheme.graphemes(gc_chars))
+    pg = list(grapheme.graphemes(pc_chars))
+    gold_langs = grapheme_languages(gc_chars, clean_lang_chars)
+
+    # -- Word-level scoring: punctuation stripped, whitespace kept as the delimiter
+    # ``word_languages``/jiwer split words on (stripping it would collapse every
+    # line into a single "word", destroying WER).
+    gc_words, clean_lang_words = _filter_text_with_langs(gc, clean_lang, _is_scoring_punct)
+    pc_words = _filter_text(pc, _is_scoring_punct)
+    word_langs = word_languages(gc_words, clean_lang_words, source_language=source_language)
 
     acc = _Accumulator(source_language)
     acc.add_chars(gg, pg, gold_langs)
-    acc.add_words(
-        gc, pc, word_languages(gc, clean_lang, source_language=source_language)
-    )
-    return acc.to_report(page_id, blended_edits, blended_gold)
+    acc.add_words(gc_words, pc_words, word_langs)
+    # SPACE/META buckets form naturally above (unfiltered by construction -- meta
+    # content is real text the prediction also transcribes); drop them here and
+    # recompute blended totals from the remaining real language-script buckets.
+    return _drop_reserved_buckets(acc.to_report(page_id, blended_edits=0, blended_gold=0))
 
 
 def evaluate_per_language(

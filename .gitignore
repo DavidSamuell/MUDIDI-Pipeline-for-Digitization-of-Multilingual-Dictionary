@@ -36,8 +36,11 @@ CLAUDE.md
 !.gitignore
 !.env.example
 
-# Label Studio local renders (regenerate locally)
-.label-studio-renders/
+# Label Studio workspaces and renders (regenerate locally)
+label-studio/workspaces/
+!label-studio/workspaces/.gitkeep
+label-studio/renders/
+!label-studio/renders/.gitkeep
 
 # Data, archives, and model outputs
 archive/

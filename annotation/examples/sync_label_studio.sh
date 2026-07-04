@@ -7,7 +7,7 @@ set -a; source .env; set +a
 
 # Actually write the corrections:
 uv run python annotation/label_studio/sync_from_label_studio.py \
-  --ls-url http://localhost:8081 --ls-token "$LS_ACCESS_TOKEN"
+  --ls-url http://localhost:8080 --ls-token "$LS_ACCESS_TOKEN"
 
 # # Limit to specific dictionaries:
 # uv run python annotation/label_studio/sync_from_label_studio.py \

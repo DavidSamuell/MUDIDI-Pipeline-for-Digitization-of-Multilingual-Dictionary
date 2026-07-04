@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
@@ -21,12 +22,17 @@ from mudidi.evaluation.stage1.flatten import (
     load_flat_lines,
 )
 from mudidi.evaluation.stage1.markup_quality import compute_markup_quality
+from mudidi.evaluation.stage1 import per_language_quality
+from mudidi.evaluation.stage1.per_language_metrics import PageLanguageReport
 from mudidi.evaluation.stage1.read_order import (
     compute_read_order,
     compute_read_order_collapsed,
 )
 from mudidi.evaluation.stage1.stage1_reports import Stage1ReportWriter
 from mudidi.evaluation.stage1.stage1_metrics import Stage1Metrics
+from mudidi.schemas.language_span import SpanMapError
+
+logger = logging.getLogger(__name__)
 
 Row = Dict[str, str]
 MetricsProfile = Literal["full", "minimal"]
@@ -61,13 +67,16 @@ class FlatStage1Evaluator:
         *,
         character_alignment: CharacterAlignmentMode = "quick_match",
         alignment_threshold: float = 0.6,
+        per_language_script: bool = False,
     ) -> None:
         self.metrics_profile = metrics_profile
         self.character_alignment = character_alignment
         self.alignment_threshold = alignment_threshold
+        self.per_language_script = per_language_script
         self._report_helper = Stage1ReportWriter(
             metrics_profile=metrics_profile,
             include_read_order=True,
+            include_per_language_script=per_language_script,
         )
 
     def _metric_csv_cols(self) -> List[str]:
@@ -94,12 +103,44 @@ class FlatStage1Evaluator:
         char_q = compute_character_quality(content_alignment)
         markup_q = compute_markup_quality(content_alignment)
 
+        per_language = None
+        if self.per_language_script:
+            per_language = self._evaluate_per_language_script(
+                pred_path, gold_path, page_id
+            )
+
         return Stage1Metrics(
             page_id=page_id,
             character_quality=char_q,
             markup_quality=markup_q,
             read_order=read_order,
+            per_language=per_language,
         )
+
+    @staticmethod
+    def _evaluate_per_language_script(
+        pred_path: Path, gold_path: Path, page_id: str
+    ) -> Optional[PageLanguageReport]:
+        """Evaluate per-language-script quality when a co-located ``*_lang.json``
+        gold span map exists; ``None`` otherwise (silently skipped -- most
+        dictionaries don't have one yet) or if the span map fails validation
+        (logged and skipped rather than failing the whole run).
+        """
+        lang_map_path = per_language_quality.lang_map_path_for_gold(gold_path)
+        if not lang_map_path.exists():
+            return None
+        try:
+            return per_language_quality.evaluate_per_language(
+                pred_path, gold_path, lang_map_path, page_id=page_id
+            )
+        except SpanMapError:
+            logger.warning(
+                "Skipping per-language-script eval for %s: invalid span map at %s",
+                page_id,
+                lang_map_path,
+                exc_info=True,
+            )
+            return None
 
     @staticmethod
     def discover_tasks(
@@ -147,6 +188,27 @@ class FlatStage1Evaluator:
         self, results: List[Stage1Metrics], output_dir: Path
     ) -> None:
         return self._report_helper.generate_csv_reports(results, output_dir)
+
+    def generate_per_language_script_csv(
+        self, results: List[Stage1Metrics], output_path: Path
+    ) -> None:
+        return self._report_helper.generate_per_language_script_csv(
+            results, output_path
+        )
+
+    def generate_per_language_script_detailed_csv(
+        self, results_by_exp: dict, output_path: Path
+    ) -> None:
+        return self._report_helper.generate_per_language_script_detailed_csv(
+            results_by_exp, output_path
+        )
+
+    def generate_per_language_script_summary_csv(
+        self, results_by_exp: dict, output_path: Path
+    ) -> None:
+        return self._report_helper.generate_per_language_script_summary_csv(
+            results_by_exp, output_path
+        )
 
     def generate_detailed_csv(
         self,

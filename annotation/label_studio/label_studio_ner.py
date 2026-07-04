@@ -195,10 +195,11 @@ def ls_task_to_page_map(
         if result.type != LABELS_TYPE or not result.value.labels:
             continue
         value = result.value
-        if raw_text[value.start : value.end] != value.text:
+        raw_slice = raw_text[value.start : value.end]
+        if raw_slice != value.text and not _region_text_reconciles(raw_slice, value.text):
             raise SpanMapError(
                 f"Label Studio region text {value.text!r} does not match "
-                f"gold[{value.start}:{value.end}]={raw_text[value.start:value.end]!r}"
+                f"gold[{value.start}:{value.end}]={raw_slice!r}"
             )
         spans.append(
             LanguageSpan(start=value.start, end=value.end, language=value.labels[0])
@@ -216,6 +217,26 @@ def ls_task_to_page_map(
     return page_map
 
 
+def _region_text_reconciles(raw_slice: str, region_text: str) -> bool:
+    """True when a region's text differs from the gold slice only by a boundary-whitespace
+    quirk of Label Studio's export.
+
+    Label Studio sometimes prepends/appends the boundary newline of a multi-line
+    selection to ``value.text`` — and serializes it as the *literal* escape ``\\n``
+    (two characters) rather than a real newline. The region's ``start``/``end`` offsets
+    stay correct, so we treat them as authoritative and only confirm the core content
+    matches after unescaping and trimming surrounding whitespace. A genuinely different
+    slice still fails (its trimmed content won't match).
+    """
+    unescaped = (
+        region_text.replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\r", "\r")
+    )
+    return unescaped.strip() == raw_slice.strip()
+
+
 def _latest_results(task: NerTask) -> List[NerResult]:
     """Return the result regions to trust: latest annotation, else latest prediction."""
     source = task.annotations or task.predictions
@@ -226,15 +247,23 @@ def _fill_gaps(spans: List[LanguageSpan], length: int) -> List[LanguageSpan]:
     """Insert ``SPACE`` spans so *spans* contiguously cover ``[0, length)``."""
     filled: List[LanguageSpan] = []
     cursor = 0
+    prev: LanguageSpan | None = None
     for span in spans:
         if span.start < cursor:
+            culprit = (
+                f"[{prev.start}:{prev.end}]={prev.language!r}" if prev else f"ending at {cursor}"
+            )
             raise SpanMapError(
-                f"overlapping Label Studio regions near offset {span.start}"
+                f"overlapping Label Studio regions: [{span.start}:{span.end}]="
+                f"{span.language!r} overlaps the previous region {culprit}. "
+                "Delete or trim one of the two overlapping spans in Label Studio and "
+                "re-sync (a character cannot belong to two languages)."
             )
         if span.start > cursor:
             filled.append(LanguageSpan(start=cursor, end=span.start, language=SPACE))
         filled.append(span)
         cursor = span.end
+        prev = span
     if cursor < length:
         filled.append(LanguageSpan(start=cursor, end=length, language=SPACE))
     return filled

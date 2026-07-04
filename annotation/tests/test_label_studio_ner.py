@@ -117,6 +117,61 @@ def test_tampered_region_text_raises():
         ls_task_to_page_map(task, mutated, dictionary="Canala-English", page=12)
 
 
+def test_region_with_escaped_boundary_newline_reconciles():
+    # Label Studio export can prepend the boundary newline to value.text and serialize
+    # it as the literal escape '\\n' while keeping start/end pointing at the content.
+    raw = "headword\nsmall crab"  # newline at index 8; "small crab" at [9:19]
+    task = {
+        "annotations": [
+            {
+                "result": [
+                    {
+                        "from_name": "label",
+                        "to_name": "text",
+                        "type": "labels",
+                        "value": {
+                            "start": 9,
+                            "end": 19,
+                            "text": "\\nsmall crab",  # literal backslash-n + content
+                            "labels": ["English"],
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+    page_map = ls_task_to_page_map(task, raw, dictionary="Canala-English", page=1)
+    # The offsets are honoured: [9:19] is English, the newline at 8 stays SPACE.
+    cm = page_map.language_char_map(raw)
+    assert cm[9] == "English"
+    assert cm[8] == SPACE
+
+
+def test_region_with_genuinely_different_text_still_raises():
+    raw = "headword small crab"
+    task = {
+        "annotations": [
+            {
+                "result": [
+                    {
+                        "from_name": "label",
+                        "to_name": "text",
+                        "type": "labels",
+                        "value": {
+                            "start": 9,
+                            "end": 14,
+                            "text": "totally different",
+                            "labels": ["English"],
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+    with pytest.raises(SpanMapError):
+        ls_task_to_page_map(task, raw, dictionary="Canala-English", page=1)
+
+
 def test_build_labels_config_lists_languages_and_meta():
     config = build_labels_config(["Canala", "English"])
     assert '<Label value="Canala"' in config

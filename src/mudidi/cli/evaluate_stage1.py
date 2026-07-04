@@ -26,8 +26,17 @@ from mudidi.evaluation.stage1.stage1_reports import Stage1ReportWriter
 FLAT_CACHE_FILE_NAME = "stage1_flat_eval_cache.json"
 FLAT_OCR_HINT_SUMMARY_FILE_NAME = "stage1_flat_eval_ocr_hint_summary.csv"
 FLAT_OCR_HINT_DETAILED_FILE_NAME = "stage1_flat_eval_ocr_hint_detailed.csv"
-GEMINI31PRO_FLAT_ALPHA_OCR_SUMMARY_FILE_NAME = (
-    "gemini31pro_flat_alpha_ocr_summary.csv"
+FLAT_PER_LANGUAGE_SCRIPT_DETAILED_FILE_NAME = (
+    "stage1_flat_eval_per_language_script_detailed.csv"
+)
+FLAT_PER_LANGUAGE_SCRIPT_SUMMARY_FILE_NAME = (
+    "stage1_flat_eval_per_language_script_summary.csv"
+)
+FLAT_OCR_HINT_PER_LANGUAGE_SCRIPT_DETAILED_FILE_NAME = (
+    "stage1_flat_eval_ocr_hint_per_language_script_detailed.csv"
+)
+FLAT_OCR_HINT_PER_LANGUAGE_SCRIPT_SUMMARY_FILE_NAME = (
+    "stage1_flat_eval_ocr_hint_per_language_script_summary.csv"
 )
 
 MetricsProfile = Literal["full", "minimal"]
@@ -43,6 +52,7 @@ def _parallel_eval_worker(
         MetricsProfile,
         CharacterAlignmentMode,
         float,
+        bool,
     ],
 ) -> tuple[str, str, Path, Path, Stage1Metrics]:
     """Evaluate one flat page (picklable entry point for ProcessPoolExecutor)."""
@@ -54,11 +64,13 @@ def _parallel_eval_worker(
         metrics_profile,
         character_alignment,
         ath,
+        per_language_script,
     ) = payload
     evaluator = FlatStage1Evaluator(
         metrics_profile=metrics_profile,
         character_alignment=character_alignment,
         alignment_threshold=ath,
+        per_language_script=per_language_script,
     )
     pred_path = Path(pred_s)
     gold_path = Path(gold_s)
@@ -73,8 +85,17 @@ def _parallel_eval_worker(
 DEFAULT_VLM_OCR_EXPERIMENTS: tuple[str, ...] = (
     "MinerU2.5-Pro",
     "PaddleOCR-VL-1.5",
-    "GLM-OCR",
     "Mathpix-OCR",
+)
+
+# Partial/legacy one-dictionary slots that should not be included in benchmark
+# aggregate discovery. They remain evaluable only when explicitly requested by
+# name outside the default benchmark helpers.
+DEFAULT_EXCLUDED_STAGE1_BENCHMARK_EXPERIMENTS: frozenset[str] = frozenset(
+    {
+        "GLM-OCR",
+        "qwen3vl235_flat_noalpha_ocr",
+    }
 )
 
 
@@ -98,6 +119,8 @@ def list_stage1_experiments_from_pred_root(
             continue
         for child in stage1_root.iterdir():
             if child.is_dir() and not child.name.startswith("."):
+                if child.name in DEFAULT_EXCLUDED_STAGE1_BENCHMARK_EXPERIMENTS:
+                    continue
                 if needle is None or needle in child.name.lower():
                     names.add(child.name)
     return sorted(names)
@@ -148,6 +171,8 @@ def list_stage1_experiments(
             continue
         for child in stage1_root.iterdir():
             if child.is_dir() and not child.name.startswith("."):
+                if child.name in DEFAULT_EXCLUDED_STAGE1_BENCHMARK_EXPERIMENTS:
+                    continue
                 if needle is None or needle in child.name.lower():
                     names.add(child.name)
     return sorted(names)
@@ -211,17 +236,6 @@ def split_results_by_ocr_hint(
     return without_hint, with_hint
 
 
-def filter_results_by_experiment(
-    results_by_exp: "OrderedDict[str, list[Stage1Metrics]]",
-    experiment_name: str,
-) -> OrderedDict[str, list[Stage1Metrics]]:
-    """Return a single-experiment slice (empty when absent)."""
-    metrics = results_by_exp.get(experiment_name)
-    if not metrics:
-        return OrderedDict()
-    return OrderedDict([(experiment_name, metrics)])
-
-
 def experiment_names_for_eval(
     args: argparse.Namespace,
     samples: Path | None = None,
@@ -231,17 +245,20 @@ def experiment_names_for_eval(
     """Resolve which experiment folders to include in batch eval-flat."""
     subdir = getattr(args, "stage1_output_subdir", "stage-1")
     if pred_root is not None:
-        list_experiments = lambda **kw: list_stage1_experiments_from_pred_root(
-            pred_root, **kw
-        )
-        find_flat_vlm = lambda **kw: find_flat_and_vlm_ocr_experiments_from_pred_root(
-            pred_root, **kw
-        )
+        def list_experiments(**kw: object) -> list[str]:
+            return list_stage1_experiments_from_pred_root(pred_root, **kw)
+
+        def find_flat_vlm(**kw: object) -> list[str]:
+            return find_flat_and_vlm_ocr_experiments_from_pred_root(pred_root, **kw)
     else:
         if samples is None:
             raise ValueError("samples required when pred_root is not set")
-        list_experiments = lambda **kw: list_stage1_experiments(samples, **kw)
-        find_flat_vlm = lambda **kw: find_flat_and_vlm_ocr_experiments(samples, **kw)
+
+        def list_experiments(**kw: object) -> list[str]:
+            return list_stage1_experiments(samples, **kw)
+
+        def find_flat_vlm(**kw: object) -> list[str]:
+            return find_flat_and_vlm_ocr_experiments(samples, **kw)
 
     if args.include_vlm_ocr:
         found = find_flat_vlm(languages=args.languages, stage1_output_subdir=subdir)
@@ -343,6 +360,16 @@ def main() -> int:
             "'collapsed' (join whole page into one string per side)."
         ),
     )
+    parser.add_argument(
+        "--per-language-script",
+        action="store_true",
+        help=(
+            "Also compute per-language-script (e.g. Japanese-Kanji, English-Latin) "
+            "character/word quality, attributed via each page's gold *_lang.json "
+            "span map. Silently skipped for pages/dictionaries without one "
+            "(currently only Japanese-English page_137/page_351)."
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--workers",
@@ -362,6 +389,7 @@ def main() -> int:
         metrics_profile=args.metrics,
         character_alignment=args.character_alignment,
         alignment_threshold=args.alignment_threshold,
+        per_language_script=args.per_language_script,
     )
 
     if args.predicted:
@@ -444,21 +472,23 @@ def main() -> int:
 
     if use_dataset_layout:
         assert dataset is not None and pred_root is not None
-        discover = lambda langs: evaluator.discover_dataset_tasks(
-            dataset,
-            pred_root,
-            experiments=experiment_names,
-            languages=langs,
-            stage1_output_subdir=args.stage1_output_subdir,
-        )
+        def discover(langs: list[str] | None) -> list[FlatEvalTask]:
+            return evaluator.discover_dataset_tasks(
+                dataset,
+                pred_root,
+                experiments=experiment_names,
+                languages=langs,
+                stage1_output_subdir=args.stage1_output_subdir,
+            )
     else:
         assert samples is not None
-        discover = lambda langs: evaluator.discover_tasks(
-            samples,
-            experiments=experiment_names,
-            languages=langs,
-            stage1_output_subdir=args.stage1_output_subdir,
-        )
+        def discover(langs: list[str] | None) -> list[FlatEvalTask]:
+            return evaluator.discover_tasks(
+                samples,
+                experiments=experiment_names,
+                languages=langs,
+                stage1_output_subdir=args.stage1_output_subdir,
+            )
 
     tasks_export = discover(None)
     tasks_eval = discover(args.languages)
@@ -485,6 +515,7 @@ def main() -> int:
             task.gold_path,
             ath,
             calign,
+            args.per_language_script,
         )
         if cache_ok and not (in_eval and args.overwrite):
             entry = cache.get_entry(task.experiment, task.page_id)
@@ -503,7 +534,16 @@ def main() -> int:
     ) -> None:
         nonlocal n_evaled
         print(f"  [eval-flat] {experiment} :: {page_id}")
-        cache.put(experiment, page_id, pred_path, gold_path, ath, calign, metrics)
+        cache.put(
+            experiment,
+            page_id,
+            pred_path,
+            gold_path,
+            ath,
+            calign,
+            metrics,
+            args.per_language_script,
+        )
         metrics_by_key[(experiment, page_id)] = metrics
         n_evaled += 1
 
@@ -517,6 +557,7 @@ def main() -> int:
                 args.metrics,
                 args.character_alignment,
                 ath,
+                args.per_language_script,
             )
             for task in to_eval
         ]
@@ -570,7 +611,6 @@ def main() -> int:
         evaluator.generate_json_report(
             results, exp_out / "stage1_flat_evaluation_report.json"
         )
-        evaluator.generate_csv_reports(results, exp_out)
         print(f"\n### Experiment: {exp} ({len(results)} page(s)) ###")
         print(text)
 
@@ -579,6 +619,7 @@ def main() -> int:
         tasks_for_csv,
         alignment_threshold=ath,
         character_alignment=calign,
+        per_language_script=args.per_language_script,
     )
     main_results, ocr_hint_results = split_results_by_ocr_hint(
         results_for_csv,
@@ -624,6 +665,15 @@ def main() -> int:
         out / "stage1_flat_eval_summary.csv",
         **csv_kwargs,
     )
+    if args.per_language_script:
+        evaluator.generate_per_language_script_detailed_csv(
+            csv_results,
+            out / FLAT_PER_LANGUAGE_SCRIPT_DETAILED_FILE_NAME,
+        )
+        evaluator.generate_per_language_script_summary_csv(
+            csv_results,
+            out / FLAT_PER_LANGUAGE_SCRIPT_SUMMARY_FILE_NAME,
+        )
     if split_ocr_hint and ocr_hint_results:
         evaluator.generate_detailed_csv(
             ocr_hint_results,
@@ -637,15 +687,14 @@ def main() -> int:
             out / FLAT_OCR_HINT_SUMMARY_FILE_NAME,
             **csv_kwargs,
         )
-        gemini31pro_results = filter_results_by_experiment(
-            ocr_hint_results, "gemini31pro_flat_alpha_ocr"
-        )
-        if gemini31pro_results:
-            evaluator.generate_summary_csv(
-                gemini31pro_results,
-                config_root,
-                out / GEMINI31PRO_FLAT_ALPHA_OCR_SUMMARY_FILE_NAME,
-                **csv_kwargs,
+        if args.per_language_script:
+            evaluator.generate_per_language_script_detailed_csv(
+                ocr_hint_results,
+                out / FLAT_OCR_HINT_PER_LANGUAGE_SCRIPT_DETAILED_FILE_NAME,
+            )
+            evaluator.generate_per_language_script_summary_csv(
+                ocr_hint_results,
+                out / FLAT_OCR_HINT_PER_LANGUAGE_SCRIPT_SUMMARY_FILE_NAME,
             )
     print(f"\nReports under: {out}")
     return 0

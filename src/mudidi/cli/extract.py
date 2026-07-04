@@ -19,6 +19,11 @@ from mudidi.ocr.mathpix import MathpixBackend
 from mudidi.ocr.vlm.prompts import find_ocr_hint_file
 from mudidi.schemas.ocr_result import OCRPageResult
 from mudidi.extraction.llm_two_stage import TwoStageLLMExtraction
+from mudidi.evaluation.stage2.mdf_lexical_repair import (
+    repair_mdf_text,
+    normalize_stage1_text_for_repair,
+    write_repair_audit,
+)
 from mudidi.paths import PARSE_RULES_FILENAME, PARSE_RULES_USAGE_FILENAME
 from mudidi.extraction.sample_entry import (
     configure_sample_entry_args,
@@ -1203,6 +1208,14 @@ Examples:
         help="Stage-2 transcript origin (default: gold). Use predictions with "
         "--experiment-name to consume Stage-1 model outputs (e.g. GLM-OCR-vllm).",
     )
+    parser.add_argument(
+        "--stage2-lexical-repair",
+        action="store_true",
+        dest="stage2_lexical_repair",
+        help="After Stage 2 MDF extraction, conservatively repair lexical "
+        "characters in field values from the Stage 1 transcript. MDF markers, "
+        "line breaks, whitespace, and punctuation are preserved.",
+    )
 
     args = parser.parse_args()
     attach_stage_models(args)
@@ -2019,11 +2032,33 @@ def _run_single_entry(args, parser) -> int:
                         gold_path = _gold_mdf_path_for_entry(
                             output_dir, stem, getattr(args, "compare_gold", None)
                         )
+                        mdf_text = page.mdf_text
+                        repair_result = None
+                        if (
+                            getattr(args, "stage2_lexical_repair", False)
+                            and stage1_transcript is not None
+                        ):
+                            stage1_repair_text = normalize_stage1_text_for_repair(
+                                stage1_transcript
+                            )
+                            repair_result = repair_mdf_text(
+                                page.mdf_text,
+                                stage1_repair_text,
+                            )
+                            mdf_text = repair_result.text
                         result = save_direct_mdf_outputs(
-                            mdf_text=page.mdf_text,
+                            mdf_text=mdf_text,
                             output_base=out_tsv,
                             gold_path=gold_path,
                         )
+                        if repair_result is not None:
+                            audit_path = stage2_page_dir / f"{stem}_lexical_repair.json"
+                            write_repair_audit(repair_result, audit_path)
+                            _locked_print(
+                                f"  → Lexical repair changed "
+                                f"{repair_result.changed_lines} MDF line(s); "
+                                f"audit → {audit_path.name}"
+                            )
                         if gold_path:
                             ok = result.get("gold_compare_ok", False)
                             report = result.get("gold_compare")

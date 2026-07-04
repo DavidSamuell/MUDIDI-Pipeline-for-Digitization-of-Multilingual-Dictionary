@@ -1,8 +1,8 @@
 """Set up Label Studio projects for post-editing OCR transcriptions.
 
 Creates one Label Studio project per dictionary language pair, renders
-snippet PDFs to PNGs, uploads page images, and imports stage-1 TSV
-transcriptions as pre-filled tasks.
+snippet PDFs to PNGs, uploads page images, and imports stage-1 flat
+(or column TSV) transcriptions as pre-filled tasks.
 
 Usage:
     conda activate label-studio
@@ -161,26 +161,61 @@ def _parse_tsv_buckets(tsv_path: Path) -> dict[str, list[str]]:
     return buckets
 
 
+def _find_stage1_file(page_dir: Path) -> Path | None:
+    """Return the stage-1 prediction file for a page directory, if any.
+
+    Prefers ``*_stage1_flat.txt`` (inference default); falls back to
+    ``*_stage1.tsv`` for legacy column-mode workspaces.
+    """
+    flat_files = sorted(
+        p for p in page_dir.glob("*_stage1_flat.txt") if not p.name.startswith("._")
+    )
+    if flat_files:
+        return flat_files[0]
+    tsv_files = sorted(
+        p for p in page_dir.glob("*_stage1.tsv") if not p.name.startswith("._")
+    )
+    if tsv_files:
+        return tsv_files[0]
+    return None
+
+
+def _page_stem_from_stage1(path: Path) -> str:
+    stem = path.stem
+    for suffix in ("_stage1_flat", "_stage1"):
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def _build_task_data_from_flat(flat_path: Path) -> dict[str, str]:
+    """Map a flat stage-1 transcript into the single-column label config."""
+    text = flat_path.read_text(encoding="utf-8").strip()
+    return {
+        "header_text": "",
+        "body_text": text,
+        "footer_text": "",
+    }
+
+
 def _detect_layout(stage1_dir: Path) -> str:
     """Pick 'single' / 'two_col' / 'three_col' from the dominant page layout.
 
-    Each page votes once based on which body buckets are non-empty:
-      middle present     → three_col
-      left or right only → two_col
-      only single        → single
-    Ties resolve to the first layout encountered. Default for empty input
-    is two_col (the safe middle-ground that won't strand any text).
+    Flat stage-1 files always vote ``single``. TSV pages vote from column
+    buckets: middle → three_col, left/right → two_col, single → single.
+    Default for empty input is two_col.
     """
     counts: Counter[str] = Counter()
     for page_dir in sorted(stage1_dir.iterdir()):
         if not page_dir.is_dir():
             continue
-        tsv_files = sorted(
-            p for p in page_dir.glob("*_stage1.tsv") if not p.name.startswith("._")
-        )
-        if not tsv_files:
+        pred_path = _find_stage1_file(page_dir)
+        if pred_path is None:
             continue
-        b = _parse_tsv_buckets(tsv_files[0])
+        if pred_path.name.endswith("_stage1_flat.txt"):
+            counts["single"] += 1
+            continue
+        b = _parse_tsv_buckets(pred_path)
         if b["middle"]:
             counts["three_col"] += 1
         elif b["left"] or b["right"]:
@@ -477,14 +512,11 @@ def setup_project_for_entry(
 
     page_dirs = sorted(d for d in stage1_dir.iterdir() if d.is_dir())
     for page_dir in page_dirs:
-        tsv_files = sorted(
-            p for p in page_dir.glob("*_stage1.tsv") if not p.name.startswith("._")
-        )
-        if not tsv_files:
+        pred_path = _find_stage1_file(page_dir)
+        if pred_path is None:
             continue
 
-        tsv_path = tsv_files[0]
-        page_stem = tsv_path.stem.replace("_stage1", "")
+        page_stem = _page_stem_from_stage1(pred_path)
 
         pdf_path = snippets_dir / f"{page_stem}.pdf"
         if not pdf_path.exists():
@@ -507,8 +539,11 @@ def setup_project_for_entry(
                 shutil.copy2(pdf_path, dest)
             image_path = dest
 
-        buckets = _parse_tsv_buckets(tsv_path)
-        text_fields = _build_task_data(buckets, layout)
+        if pred_path.name.endswith("_stage1_flat.txt"):
+            text_fields = _build_task_data_from_flat(pred_path)
+        else:
+            buckets = _parse_tsv_buckets(pred_path)
+            text_fields = _build_task_data(buckets, layout)
 
         # ?d= is relative to LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT (the parent
         # of per-language render dirs). Import storage uses the subdir only.
@@ -572,7 +607,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--render-dir",
         type=Path,
-        default=Path(".label-studio-renders"),
+        default=Path("label-studio/renders"),
         help="Local directory for rendered PNG page images",
     )
     parser.add_argument(

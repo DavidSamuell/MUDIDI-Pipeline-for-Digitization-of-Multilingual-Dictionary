@@ -7,7 +7,6 @@ from collections import defaultdict
 from typing import Dict, List, Sequence, Tuple
 
 import Levenshtein
-from scipy.optimize import linear_sum_assignment
 
 from mudidi.evaluation.stage1.tag_parser import casefold_letters_for_eval
 
@@ -269,6 +268,7 @@ def cal_final_match(
         cost_matrix, norm_gold, norm_pred
     )
     import numpy as np
+    from scipy.optimize import linear_sum_assignment
 
     arr = np.array(new_matrix, dtype=float)
     row_ind, col_ind = linear_sum_assignment(arr)
@@ -434,6 +434,7 @@ def convert_final_matches(
                 [norm_pred[i] for i in unmatched_pred],
             )
             import numpy as np
+            from scipy.optimize import linear_sum_assignment
 
             row_ind, col_ind = linear_sum_assignment(np.array(sub_matrix))
             for row, col in zip(row_ind, col_ind):

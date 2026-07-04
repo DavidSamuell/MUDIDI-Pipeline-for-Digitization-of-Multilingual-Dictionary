@@ -1,10 +1,7 @@
 """Deterministic Unicode script classification for source/target span separation.
 
-This is the *first* stage of the Tier-2 pipeline (script-check -> LID -> merge).
-It resolves every token it can by script alone (distinct source scripts, IPA
-diacritics, distinct-script targets like Han) and leaves only the genuinely
-ambiguous tokens -- those sitting in the *same* script as a target -- as
-``RESIDUAL`` for a language identifier to disambiguate.
+This is the script classifier used by :mod:`script_labeler` (and legacy
+:class:`~script_check.ScriptConfig` / :func:`classify_token` for LID spikes).
 
 No third-party dependencies: pure ``unicodedata`` + codepoint ranges.
 """
@@ -95,7 +92,103 @@ def _base_script(ch: str) -> str:
         return "cuneiform"
     if _in(ch, 0x0041, 0x024F):  # Basic Latin .. Latin Extended-B (incl. diacritics)
         return "latin"
+    # Supplementary Latin blocks (Iñupiatun ḷ U+1E37, etc.) — not plain Latin.
+    if (
+        _in(ch, 0x1E00, 0x1EFF)  # Latin Extended Additional
+        or _in(ch, 0x2C60, 0x2C7F)  # Latin Extended-C
+        or _in(ch, 0xA720, 0xA7FF)  # Latin Extended-D
+        or _in(ch, 0xAB30, 0xAB6F)  # Latin Extended-E
+    ):
+        return "latin_ext"
     return "other"
+
+
+# Coarse ``_base_script`` buckets -> human-readable script labels (ISO 15924-inspired).
+SCRIPT_BUCKET_LABELS: Dict[str, str] = {
+    "ipa": "IPA",
+    "latin": "Latin",
+    "latin_ext": "Latin Extended",
+    "cyrillic": "Cyrillic",
+    "cyrillic_ext": "Cyrillic Extended",
+    "han": "Han",
+    "hiragana": "Hiragana",
+    "katakana": "Katakana",
+    "greek": "Greek",
+    "devanagari": "Devanagari",
+    "bengali": "Bengali",
+    "gurmukhi": "Gurmukhi",
+    "gujarati": "Gujarati",
+    "telugu": "Telugu",
+    "thai": "Thai",
+    "khmer": "Khmer",
+    "georgian": "Georgian",
+    "hebrew": "Hebrew",
+    "arabic": "Arabic",
+    "syriac": "Syriac",
+    "cuneiform": "Cuneiform",
+    "other": "Other",
+}
+
+
+def script_label_for_bucket(bucket: str) -> str:
+    """Map a ``_base_script`` bucket to a display label."""
+    return SCRIPT_BUCKET_LABELS.get(bucket, "Other")
+
+
+def _token_script_label(token: str, carry: str | None) -> str:
+    """Resolve one whitespace-delimited token to a single script label."""
+    buckets = [_base_script(ch) for ch in token if not ch.isspace()]
+    letters = [bucket for bucket in buckets if bucket not in ("punct", "digit", "space")]
+    if not letters:
+        return carry if carry is not None else "Other"
+    bucket_set = set(letters)
+    # IPA/Latin mixes (Canala-style orthography) -> IPA for the whole token.
+    if "ipa" in bucket_set:
+        return "IPA"
+    # Extended Cyrillic letters mark Chukchi/Evenki even beside Russian Cyrillic.
+    if "cyrillic_ext" in bucket_set:
+        return "Cyrillic Extended"
+    # Supplementary Latin (Iñupiatun ḷ, etc.) wins over plain Latin in a token.
+    if "latin_ext" in bucket_set:
+        return "Latin Extended"
+    if len(bucket_set) == 1:
+        return script_label_for_bucket(next(iter(bucket_set)))
+    # Prefer a non-Latin/Cyrillic script when a token mixes buckets (e.g. "Heb.").
+    exotic = bucket_set - {"latin", "latin_ext", "cyrillic", "ipa", "cyrillic_ext"}
+    if exotic:
+        return script_label_for_bucket(sorted(exotic)[0])
+    return script_label_for_bucket(max(set(letters), key=letters.count))
+
+
+def assign_char_script_labels(
+    raw_text: str,
+    *,
+    space_label: str = "space",
+) -> List[str]:
+    """Return a per-codepoint script label array of length ``len(raw_text)``.
+
+    Whitespace is ``space_label``. Each non-whitespace token receives one script
+    label (IPA wins over Latin in mixed tokens; extended Cyrillic wins over
+    standard Cyrillic). Punctuation inside a token shares the token's script.
+    """
+    labels: List[str] = [space_label] * len(raw_text)
+    carry: str | None = None
+    index = 0
+    length = len(raw_text)
+    while index < length:
+        if raw_text[index].isspace():
+            index += 1
+            continue
+        stop = index
+        while stop < length and not raw_text[stop].isspace():
+            stop += 1
+        token = raw_text[index:stop]
+        script = _token_script_label(token, carry)
+        for offset in range(index, stop):
+            labels[offset] = script
+        carry = script
+        index = stop
+    return labels
 
 
 @dataclass(frozen=True)

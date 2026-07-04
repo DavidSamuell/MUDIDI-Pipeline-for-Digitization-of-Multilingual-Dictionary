@@ -30,7 +30,9 @@ STAGE1_EXPERIMENT="${STAGE1_EXPERIMENT:-}"
 STAGE2_EXPERIMENT_SUFFIX="${STAGE2_EXPERIMENT_SUFFIX:-}"
 STAGE2_REASONING="${STAGE2_REASONING:-high}"
 TOOLBOX_PDF="${TOOLBOX_PDF:-assets/Pages from ToolboxReferenceManual.pdf}"
-EXTRACT_EXTRA_ARGS=("$@")
+if (($#)); then
+    EXTRACT_EXTRA_ARGS=("$@")
+fi
 
 if [[ -z "${STAGE1_EXPERIMENT}" ]]; then
     echo "ERROR: set STAGE1_EXPERIMENT to a Stage 1 experiment name (e.g. gemini31pro_flat_alpha)." >&2
@@ -99,14 +101,16 @@ run_stage2() {
     experiment="${experiment}_${STAGE2_EXPERIMENT_SUFFIX}"
 
     local language entry_dir pages_dir output_dir config_file intro_path
-    local -a intro_args
+    local use_intro
+    local -a cmd
 
     for language in "${LANGUAGES[@]}"; do
         entry_dir="${DATASET_DIR}/${language}"
         pages_dir="${entry_dir}/Dictionary pages"
         output_dir="${OUTPUT_ROOT}/${language}"
         config_file="${entry_dir}/dictionary_languages.yaml"
-        intro_args=()
+        intro_path=""
+        use_intro=1
 
         if ! prepare_stage1_predictions "${language}"; then
             continue
@@ -119,8 +123,14 @@ run_stage2() {
             echo "WARNING: ${language}: missing dictionary_languages.yaml; skipping." >&2
             continue
         fi
-        if intro_path="$(find_intro_path "${entry_dir}")"; then
-            intro_args=(--intro "${intro_path}")
+        for arg in "$@"; do
+            if [[ "${arg}" == "--no-intro" ]]; then
+                use_intro=0
+                break
+            fi
+        done
+        if [[ "${use_intro}" == "1" ]] && intro_path="$(find_intro_path "${entry_dir}")"; then
+            :
         fi
 
         echo ""
@@ -131,25 +141,34 @@ run_stage2() {
         echo " Output dir:   ${output_dir}"
         echo "------------------------------------------------------------"
 
-        if ! uv run mudidi run \
-            --benchmark \
-            --strategy two_stage \
-            --stage 2 \
-            --stage-2-pass-1-model "${model}" \
-            --stage-2-pass-2-model "${model}" \
-            --stage2-reasoning "${STAGE2_REASONING}" \
-            --pages "${pages_dir}" \
-            --output-dir "${output_dir}" \
-            --dictionary-languages "${config_file}" \
-            "${intro_args[@]}" \
-            --toolbox-pdf "${TOOLBOX_PDF}" \
-            --one-page-per-entry \
-            --stage1-source predictions \
-            --stage1-input flat \
-            --experiment-name "${STAGE1_EXPERIMENT}" \
-            --stage2-experiment-name "${experiment}" \
-            "$@" \
-            "${EXTRACT_EXTRA_ARGS[@]}"; then
+        cmd=(
+            uv run mudidi run
+            --benchmark
+            --strategy two_stage
+            --stage 2
+            --stage-2-pass-1-model "${model}"
+            --stage-2-pass-2-model "${model}"
+            --stage2-reasoning "${STAGE2_REASONING}"
+            --pages "${pages_dir}"
+            --output-dir "${output_dir}"
+            --dictionary-languages "${config_file}"
+            --one-page-per-entry
+            --stage1-source predictions
+            --stage1-input flat
+            --experiment-name "${STAGE1_EXPERIMENT}"
+            --stage2-experiment-name "${experiment}"
+        )
+        if [[ -n "${intro_path}" ]]; then
+            cmd+=(--intro "${intro_path}")
+        fi
+        if (($#)); then
+            cmd+=("$@")
+        fi
+        if [[ -n "${EXTRACT_EXTRA_ARGS+x}" ]]; then
+            cmd+=("${EXTRACT_EXTRA_ARGS[@]}")
+        fi
+
+        if ! "${cmd[@]}"; then
             echo "WARNING: ${language}: stage-2 experiment ${experiment} failed or was skipped; continuing." >&2
         fi
     done

@@ -1,0 +1,1954 @@
+========================================================================
+STAGE 1 OCR EVALUATION REPORT
+========================================================================
+
+--- Assyrian-English/page_352 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.3109
+    GCER: 0.2647  (26.47%)
+    WER:  0.3308  (33.08%)
+    Spans: 36 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6300  (TP=86 FP=34 FN=67)
+    Bold   — P: 1.0000  R: 0.0435  F1: 0.0833  (TP=3 FP=0 FN=66)
+    Italic — P: 0.7094  R: 0.9881  F1: 0.8259  (TP=83 FP=34 FN=1)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Arabic-Arabic          1.000   1.000     1.000       3
+    Arabic-Latin           0.000   0.000     0.000       5
+    Assyrian-Cuneiform     0.450   1.000     0.450     131
+    Assyrian-Latin         0.552   0.640     0.552     498
+    English-Latin          0.001   0.004     0.001     998
+    Hebrew-Hebrew          0.400   0.667     0.400      10
+    Latin-Latin            0.000   0.000     0.000      12
+
+--- Assyrian-English/page_39 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.3905
+    GCER: 0.3731  (37.31%)
+    WER:  0.4481  (44.81%)
+    Spans: 29 matched, 2 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.5844  (TP=45 FP=22 FN=42)
+    Bold   — P: 1.0000  R: 0.0870  F1: 0.1600  (TP=4 FP=0 FN=42)
+    Italic — P: 0.6508  R: 1.0000  F1: 0.7885  (TP=41 FP=22 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0645
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Assyrian-Cuneiform     0.543   0.983     0.543     151
+    Assyrian-Latin         0.592   0.630     0.592     397
+    English-Latin          0.006   0.031     0.006     494
+    Greek-Greek            0.000   0.000     0.000       9
+    Hebrew-Hebrew          0.375   1.000     0.375       8
+
+--- Assyrian-English/page_842 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.2939
+    GCER: 0.2614  (26.14%)
+    WER:  0.4066  (40.66%)
+    Spans: 36 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.4793  (TP=87 FP=134 FN=55)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=121 FN=55)
+    Italic — P: 0.8700  R: 1.0000  F1: 0.9305  (TP=87 FP=13 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.1667
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Assyrian-Cuneiform     0.986   1.000     0.986     139
+    Assyrian-Latin         0.511   0.617     0.511     501
+    English-Latin          0.008   0.063     0.008     869
+    Old Persian-Latin      0.017   0.300     0.017      60
+
+--- Bengalese-English/page_105 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0179
+    GCER: 0.0074  (0.74%)
+    WER:  0.0204  (2.04%)
+    Spans: 99 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6621  (TP=96 FP=3 FN=95)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=95)
+    Italic — P: 0.9697  R: 1.0000  F1: 0.9846  (TP=96 FP=3 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Bengalese-Bengali      0.025   0.093     0.025     485
+    English-Latin          0.000   0.000     0.000    1999
+
+--- Bengalese-English/page_217 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0193
+    GCER: 0.0089  (0.89%)
+    WER:  0.0198  (1.98%)
+    Spans: 99 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6634  (TP=67 FP=4 FN=64)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=64)
+    Italic — P: 0.9437  R: 1.0000  F1: 0.9710  (TP=67 FP=4 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Bengalese-Bengali      0.042   0.116     0.042     287
+    English-Latin          0.000   0.000     0.000    2239
+
+--- Bengalese-English/page_54 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0049
+    GCER: 0.0050  (0.50%)
+    WER:  0.0187  (1.87%)
+    Spans: 100 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9944  (TP=179 FP=1 FN=1)
+    Bold   — P: 0.9890  R: 0.9890  F1: 0.9890  (TP=90 FP=1 FN=1)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=89 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Bengalese-Bengali      0.031   0.085     0.031     509
+    English-Latin          0.000   0.005     0.000    2092
+
+--- Canala-English/page_12 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0027
+    GCER: 0.0027  (0.27%)
+    WER:  0.0159  (1.59%)
+    Spans: 86 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=0)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Canala-Latin           0.014   0.056     0.014     348
+    English-Latin          0.000   0.000     0.000    1062
+    French-Latin           0.000   0.000     0.000      38
+
+--- Canala-English/page_30 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0351
+    GCER: 0.0320  (3.20%)
+    WER:  0.1293  (12.93%)
+    Spans: 85 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=0)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Canala-Latin           0.167   0.452     0.167     300
+    English-Latin          0.000   0.015     0.000     905
+
+--- Canala-English/page_64 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0193
+    GCER: 0.0118  (1.18%)
+    WER:  0.0566  (5.66%)
+    Spans: 86 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=0)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Canala-Latin           0.043   0.185     0.043     395
+    English-Latin          0.000   0.004     0.000    1050
+
+--- Chepang-English/page_103 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0436
+    GCER: 0.0438  (4.38%)
+    WER:  0.1838  (18.38%)
+    Spans: 85 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8953  (TP=154 FP=21 FN=15)
+    Bold   — P: 0.8545  R: 0.8624  F1: 0.8584  (TP=94 FP=16 FN=15)
+    Italic — P: 0.9231  R: 1.0000  F1: 0.9600  (TP=60 FP=5 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chepang-Latin          0.157   0.647     0.157     662
+    English-Latin          0.000   0.017     0.000    1303
+
+--- Chepang-English/page_304 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0028
+    GCER: 0.0019  (0.19%)
+    WER:  0.0114  (1.14%)
+    Spans: 86 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9910  (TP=166 FP=3 FN=0)
+    Bold   — P: 0.9725  R: 1.0000  F1: 0.9860  (TP=106 FP=3 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=60 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chepang-Latin          0.005   0.028     0.005     586
+    English-Latin          0.001   0.006     0.001    1439
+
+--- Chepang-English/page_37 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0174
+    GCER: 0.0227  (2.27%)
+    WER:  0.0590  (5.90%)
+    Spans: 86 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 1.0000  (TP=157 FP=0 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=115 FP=0 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=42 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chepang-Latin          0.027   0.137     0.027     666
+    English-Latin          0.024   0.028     0.023    1332
+    Nepali-Latin           0.000   0.000     0.000       2
+
+--- Chukchi-Russian/page_26 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0540
+    GCER: 0.0535  (5.35%)
+    WER:  0.1984  (19.84%)
+    Spans: 33 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9512  (TP=39 FP=2 FN=2)
+    Bold   — P: 0.9310  R: 0.9310  F1: 0.9310  (TP=27 FP=2 FN=2)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=12 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chukchi-Cyrillic Extended   0.237   0.828     0.217     194
+    Russian-Cyrillic       0.002   0.012     0.002     507
+
+--- Chukchi-Russian/page_3 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0581
+    GCER: 0.0587  (5.87%)
+    WER:  0.4336  (43.36%)
+    Spans: 33 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 1.0000  (TP=56 FP=0 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=39 FP=0 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=17 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chukchi-Cyrillic Extended   0.040   0.256     0.040     275
+    Russian-Cyrillic       0.086   0.557     0.086     453
+
+--- Chukchi-Russian/page_48 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0419
+    GCER: 0.0454  (4.54%)
+    WER:  0.2806  (28.06%)
+    Spans: 34 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9828  (TP=57 FP=1 FN=1)
+    Bold   — P: 0.9737  R: 0.9737  F1: 0.9737  (TP=37 FP=1 FN=1)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=20 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chukchi-Cyrillic Extended   0.103   0.575     0.103     281
+    Russian-Cyrillic       0.030   0.165     0.030     570
+
+--- Circassian-English-Turkish/page_1 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.2677
+    GCER: 0.2694  (26.94%)
+    WER:  0.6847  (68.47%)
+    Spans: 22 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.3619  (TP=19 FP=2 FN=65)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=63)
+    Italic — P: 0.9048  R: 0.9048  F1: 0.9048  (TP=19 FP=2 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Circassian-Arabic      0.633   1.000     0.633     166
+    Circassian-Latin       0.044   0.273     0.044     227
+    English-Latin          0.000   0.111     0.000     276
+    Turkish-Arabic         0.149   0.679     0.149     141
+
+--- Circassian-English-Turkish/page_2 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.3419
+    GCER: 0.4575  (45.75%)
+    WER:  0.7143  (71.43%)
+    Spans: 22 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.5333  (TP=20 FP=35 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=3 FP=0 FN=0)
+    Italic — P: 0.3269  R: 1.0000  F1: 0.4928  (TP=17 FP=35 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Circassian-Arabic      0.678   0.969     0.620     152
+    Circassian-Latin       0.055   0.161     0.053     201
+    English-Latin          0.078   0.523     0.078     193
+    Turkish-Arabic         0.651   0.963     0.651     109
+
+--- Circassian-English-Turkish/page_3 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.2348
+    GCER: 0.2335  (23.35%)
+    WER:  0.5968  (59.68%)
+    Spans: 18 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6977  (TP=15 FP=8 FN=5)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=3)
+    Italic — P: 0.6522  R: 0.8824  F1: 0.7500  (TP=15 FP=8 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Circassian-Arabic      0.379   0.821     0.379     124
+    Circassian-Latin       0.072   0.375     0.072     166
+    English-Latin          0.033   0.094     0.032     241
+    French-Latin           0.000   0.000     0.000       6
+    Turkish-Arabic         0.226   0.719     0.222     115
+
+--- Efik-English/page_13 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0010
+    GCER: 0.0012  (0.12%)
+    WER:  0.0061  (0.61%)
+    Spans: 94 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9880  (TP=206 FP=2 FN=3)
+    Bold   — P: 0.9583  R: 0.8846  F1: 0.9200  (TP=23 FP=1 FN=3)
+    Italic — P: 0.9946  R: 1.0000  F1: 0.9973  (TP=183 FP=1 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Efik-Latin             0.004   0.017     0.004     505
+    English-Latin          0.000   0.000     0.000    1125
+
+--- Efik-English/page_25 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0138
+    GCER: 0.0236  (2.36%)
+    WER:  0.0440  (4.40%)
+    Spans: 104 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9464  (TP=203 FP=4 FN=19)
+    Bold   — P: 0.9714  R: 0.6415  F1: 0.7727  (TP=34 FP=1 FN=19)
+    Italic — P: 0.9826  R: 1.0000  F1: 0.9912  (TP=169 FP=3 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Efik-Latin             0.011   0.056     0.011     615
+    English-Latin          0.034   0.020     0.033    1343
+
+--- Efik-English/page_32 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0200
+    GCER: 0.0230  (2.30%)
+    WER:  0.1096  (10.96%)
+    Spans: 104 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9716  (TP=154 FP=9 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=32 FP=0 FN=0)
+    Italic — P: 0.9313  R: 1.0000  F1: 0.9644  (TP=122 FP=9 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Efik-Latin             0.022   0.098     0.022     603
+    English-Latin          0.000   0.000     0.000    1235
+
+--- Evenki-Russian/page_1 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0099
+    GCER: 0.0110  (1.10%)
+    WER:  0.0605  (6.05%)
+    Spans: 104 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9535  (TP=297 FP=9 FN=20)
+    Bold   — P: 0.9149  R: 0.8113  F1: 0.8600  (TP=86 FP=8 FN=20)
+    Italic — P: 0.9953  R: 1.0000  F1: 0.9976  (TP=211 FP=1 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Evenki-Cyrillic        0.017   0.101     0.017     641
+    Russian-Cyrillic       0.024   0.123     0.024     723
+
+--- Evenki-Russian/page_2 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0559
+    GCER: 0.0541  (5.41%)
+    WER:  0.3312  (33.12%)
+    Spans: 83 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9885  (TP=215 FP=0 FN=5)
+    Bold   — P: 1.0000  R: 0.9528  F1: 0.9758  (TP=101 FP=0 FN=5)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=114 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Evenki-Cyrillic        0.064   0.318     0.064     675
+    Russian-Cyrillic       0.102   0.761     0.102     654
+
+--- Evenki-Russian/page_3 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0057
+    GCER: 0.0045  (0.45%)
+    WER:  0.0265  (2.65%)
+    Spans: 104 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9570  (TP=267 FP=1 FN=23)
+    Bold   — P: 1.0000  R: 0.7470  F1: 0.8552  (TP=62 FP=0 FN=21)
+    Italic — P: 0.9951  R: 0.9903  F1: 0.9927  (TP=205 FP=1 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Evenki-Cyrillic        0.010   0.072     0.010     595
+    Russian-Cyrillic       0.002   0.022     0.002     850
+
+--- Georgian-Russian/page_116 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0152
+    GCER: 0.0130  (1.30%)
+    WER:  0.1077  (10.77%)
+    Spans: 85 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.5234  (TP=67 FP=119 FN=3)
+    Bold   — P: 0.9818  R: 0.9818  F1: 0.9818  (TP=54 FP=1 FN=1)
+    Italic — P: 0.0992  R: 0.8667  F1: 0.1781  (TP=13 FP=118 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0235
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Georgian-Georgian      0.002   0.051     0.002     477
+    Russian-Cyrillic       0.012   0.086     0.012     744
+
+--- Gojri-English-Hindi/page_275 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0012
+    GCER: 0.0013  (0.13%)
+    WER:  0.0075  (0.75%)
+    Spans: 31 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=31)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=31)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.018     0.000     666
+    Gojri-Devanagari       0.021   0.000     0.021      96
+    Gojri-Latin            0.000   0.000     0.000     149
+    Hindi-Devanagari       0.000   0.000     0.000     326
+
+--- Gojri-English-Hindi/page_32 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0057
+    GCER: 0.0057  (0.57%)
+    WER:  0.0660  (6.60%)
+    Spans: 30 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=29)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=29)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.075     0.000     651
+    Gojri-Devanagari       0.048   0.000     0.048     105
+    Gojri-Latin            0.000   0.333     0.000     173
+    Hindi-Devanagari       0.015   0.042     0.015     204
+
+--- Gojri-English-Hindi/page_76 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0023
+    GCER: 0.0028  (0.28%)
+    WER:  0.0214  (2.14%)
+    Spans: 30 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=24)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=24)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.049     0.000     610
+    Gojri-Devanagari       0.056   0.000     0.054      72
+    Gojri-Latin            0.000   0.000     0.000     143
+    Hindi-Devanagari       0.000   0.000     0.000     308
+
+--- Greek-English/page_302 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0121
+    GCER: 0.0198  (1.98%)
+    WER:  0.0298  (2.98%)
+    Spans: 111 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7402  (TP=104 FP=6 FN=67)
+    Bold   — P: 0.9412  R: 1.0000  F1: 0.9697  (TP=96 FP=6 FN=0)
+    Italic — P: 1.0000  R: 0.1067  F1: 0.1928  (TP=8 FP=0 FN=67)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.033   0.019     0.032    1548
+    Greek-Greek            0.006   0.035     0.006     926
+
+--- Greek-English/page_38 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0172
+    GCER: 0.0196  (1.96%)
+    WER:  0.1284  (12.84%)
+    Spans: 111 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=100)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=85)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=15)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.153     0.000    1813
+    Greek-Greek            0.074   0.449     0.074     895
+
+--- Greek-English/page_451 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0109
+    GCER: 0.0199  (1.99%)
+    WER:  0.0327  (3.27%)
+    Spans: 111 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7374  (TP=66 FP=47 FN=0)
+    Bold   — P: 0.9091  R: 1.0000  F1: 0.9524  (TP=50 FP=5 FN=0)
+    Italic — P: 0.2759  R: 1.0000  F1: 0.4324  (TP=16 FP=42 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.029   0.027     0.028    1763
+    Greek-Greek            0.000   0.009     0.000     692
+
+--- Gujarati-English/page_50 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0346
+    GCER: 0.0528  (5.28%)
+    WER:  0.2409  (24.09%)
+    Spans: 71 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8600  (TP=86 FP=1 FN=27)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=47 FP=0 FN=0)
+    Italic — P: 0.9750  R: 0.5909  F1: 0.7358  (TP=39 FP=1 FN=27)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.042   0.258     0.040    1115
+    Gujarati-Gujarati      0.006   0.128     0.006     177
+
+--- Gujarati-English/page_500 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0200
+    GCER: 0.0362  (3.62%)
+    WER:  0.0712  (7.12%)
+    Spans: 71 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7838  (TP=58 FP=7 FN=25)
+    Bold   — P: 0.8649  R: 0.8421  F1: 0.8533  (TP=32 FP=5 FN=6)
+    Italic — P: 0.9286  R: 0.5778  F1: 0.7123  (TP=26 FP=2 FN=19)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.040   0.036     0.038    1182
+    Gujarati-Gujarati      0.039   0.324     0.039     153
+
+--- Gujarati-English/page_866 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0198
+    GCER: 0.0197  (1.97%)
+    WER:  0.1242  (12.42%)
+    Spans: 71 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9551  (TP=85 FP=5 FN=3)
+    Bold   — P: 0.9000  R: 0.9375  F1: 0.9184  (TP=45 FP=5 FN=3)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=40 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.049     0.001    1052
+    Gujarati-Gujarati      0.083   0.360     0.083     168
+
+--- Iñupiatun Eskimo-English/page_201 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0015
+    GCER: 0.0013  (0.13%)
+    WER:  0.0080  (0.80%)
+    Spans: 111 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9929  (TP=211 FP=3 FN=0)
+    Bold   — P: 0.9833  R: 1.0000  F1: 0.9916  (TP=118 FP=2 FN=0)
+    Italic — P: 0.9894  R: 1.0000  F1: 0.9947  (TP=93 FP=1 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.004     0.000    2034
+    Iñupiatun Eskimo-Latin   0.003   0.025     0.003     879
+    Latin-Latin            0.000   0.000     0.000     101
+
+--- Iñupiatun Eskimo-English/page_206 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0030
+    GCER: 0.0026  (0.26%)
+    WER:  0.0125  (1.25%)
+    Spans: 110 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9914  (TP=172 FP=2 FN=1)
+    Bold   — P: 0.9794  R: 0.9896  F1: 0.9845  (TP=95 FP=2 FN=1)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=77 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.002     0.001    2199
+    Iñupiatun Eskimo-Latin   0.006   0.052     0.006     865
+
+--- Iñupiatun Eskimo-English/page_42 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0038
+    GCER: 0.0029  (0.29%)
+    WER:  0.0175  (1.75%)
+    Spans: 110 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 1.0000  (TP=261 FP=0 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=144 FP=0 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=117 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    1988
+    Iñupiatun Eskimo-Latin   0.010   0.075     0.010    1217
+
+--- Japanese-English/page_137 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0206
+    GCER: 0.0176  (1.76%)
+    WER:  0.0440  (4.40%)
+    Spans: 133 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7232  (TP=145 FP=13 FN=98)
+    Bold   — P: 0.9643  R: 0.3885  F1: 0.5538  (TP=54 FP=2 FN=85)
+    Italic — P: 0.8922  R: 0.8750  F1: 0.8835  (TP=91 FP=11 FN=13)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.002     0.000    1865
+    Japanese-Kanji         0.371   0.655     0.371      62
+    Japanese-Katakana      0.018   0.075     0.018     220
+    Japanese-Latin         0.024   0.039     0.024     865
+
+--- Japanese-English/page_351 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0068
+    GCER: 0.0057  (0.57%)
+    WER:  0.0309  (3.09%)
+    Spans: 134 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7488  (TP=152 FP=13 FN=89)
+    Bold   — P: 0.8824  R: 0.3358  F1: 0.4865  (TP=45 FP=6 FN=89)
+    Italic — P: 0.9386  R: 1.0000  F1: 0.9683  (TP=107 FP=7 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.004     0.000    2215
+    Japanese-Kanji         0.092   0.200     0.092      76
+    Japanese-Katakana      0.081   0.306     0.081     185
+    Japanese-Latin         0.001   0.006     0.001     882
+
+--- Kashmiri-English/page_14 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1523
+    GCER: 0.3116  (31.16%)
+    WER:  0.4525  (45.25%)
+    Spans: 64 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=9 FN=0)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=9 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.8906
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.698   0.970     0.698     590
+    Kashmiri-Arabic        0.832   0.966     0.832     202
+    Kashmiri-Latin         0.907   0.907     0.747     290
+
+--- Kashmiri-English/page_39 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0654
+    GCER: 0.0774  (7.74%)
+    WER:  0.2646  (26.46%)
+    Spans: 68 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.3248  (TP=19 FP=7 FN=72)
+    Bold   — P: 1.0000  R: 0.0141  F1: 0.0278  (TP=1 FP=0 FN=70)
+    Italic — P: 0.7200  R: 0.9000  F1: 0.8000  (TP=18 FP=7 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.9118
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.589   0.874     0.589     562
+    Kashmiri-Arabic        0.605   0.972     0.605     157
+    Kashmiri-Latin         0.991   0.900     0.746     335
+
+--- Kashmiri-English/page_71 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1925
+    GCER: 0.3910  (39.10%)
+    WER:  0.6500  (65.00%)
+    Spans: 63 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=2 FN=64)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=47)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=2 FN=17)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.8254
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.506   0.882     0.506     476
+    Kashmiri-Arabic        0.818   1.000     0.818     192
+    Kashmiri-Latin         1.047   0.966     0.750     364
+
+--- Khmer-English/page_116 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0224
+    GCER: 0.0213  (2.13%)
+    WER:  0.0645  (6.45%)
+    Spans: 89 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=62)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=62)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.004     0.001    1136
+    Khmer-Khmer            0.104   0.281     0.104     338
+
+--- Khmer-English/page_143 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0778
+    GCER: 0.1419  (14.19%)
+    WER:  0.2087  (20.87%)
+    Spans: 90 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=57)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=57)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0444
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.041   0.058     0.041    1183
+    Khmer-Khmer            0.076   0.136     0.076     224
+
+--- Khmer-English/page_8 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0750
+    GCER: 0.1481  (14.81%)
+    WER:  0.2077  (20.77%)
+    Spans: 73 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=0)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0274
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.024     0.000     817
+    Khmer-Khmer            0.034   0.205     0.034     148
+
+--- Malay-English/page_250 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0185
+    GCER: 0.0215  (2.15%)
+    WER:  0.1127  (11.27%)
+    Spans: 72 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=3 FN=73)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=73)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=3 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.005     0.001     834
+    Malay-Arabic           0.097   0.391     0.097     288
+    Malay-Latin            0.020   0.129     0.020     351
+
+--- Malay-English/page_315 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0416
+    GCER: 0.0700  (7.00%)
+    WER:  0.1717  (17.17%)
+    Spans: 72 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=61)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=61)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.083   0.058     0.076     762
+    Malay-Arabic           0.107   0.447     0.107     318
+    Malay-Latin            0.039   0.098     0.038     334
+
+--- Malay-English/page_404 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0415
+    GCER: 0.0401  (4.01%)
+    WER:  0.2241  (22.41%)
+    Spans: 73 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=48)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=48)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.037   0.154     0.037     982
+    Malay-Arabic           0.039   0.278     0.039     281
+    Malay-Latin            0.038   0.255     0.037     292
+
+--- Na-English-Chinese-French/page_186 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0138
+    GCER: 0.0138  (1.38%)
+    WER:  0.0837  (8.37%)
+    Spans: 87 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=22)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=22)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chinese-Han            0.000   0.222     0.000     128
+    English-Latin          0.000   0.046     0.000     862
+    French-Latin           0.000   0.014     0.000     708
+    Na-IPA                 0.037   0.174     0.037     324
+    Na-Latin               0.000   0.000     0.000      41
+
+--- Na-English-Chinese-French/page_19 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0099
+    GCER: 0.0087  (0.87%)
+    WER:  0.0515  (5.15%)
+    Spans: 89 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=8)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=8)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chinese-Han            0.000   0.000     0.000     156
+    English-Latin          0.000   0.009     0.000    1018
+    French-Latin           0.001   0.006     0.001     768
+    Na-IPA                 0.027   0.152     0.027     255
+    Na-Latin               0.000   0.000     0.000      23
+
+--- Na-English-Chinese-French/page_321 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0008
+    GCER: 0.0007  (0.07%)
+    WER:  0.0084  (0.84%)
+    Spans: 85 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0822  (TP=12 FP=266 FN=2)
+    Bold   — P: 0.1143  R: 0.8571  F1: 0.2017  (TP=12 FP=93 FN=2)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=173 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Chinese-Han            0.000   0.121     0.000     130
+    English-Latin          0.000   0.000     0.000     746
+    French-Latin           0.000   0.000     0.000     738
+    Na-IPA                 0.000   0.000     0.000     412
+    Na-Latin               0.000   0.000     0.000      60
+
+--- Nahuatl-French/page_244 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0034
+    GCER: 0.0035  (0.35%)
+    WER:  0.0209  (2.09%)
+    Spans: 101 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9502  (TP=191 FP=20 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=32 FP=0 FN=0)
+    Italic — P: 0.8883  R: 1.0000  F1: 0.9408  (TP=159 FP=20 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    French-Latin           0.004   0.018     0.004    2033
+    Nahuatl-Latin          0.003   0.021     0.003    1502
+
+--- Nahuatl-French/page_74 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0059
+    GCER: 0.0056  (0.56%)
+    WER:  0.0341  (3.41%)
+    Spans: 101 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9610  (TP=148 FP=0 FN=12)
+    Bold   — P: 1.0000  R: 0.9688  F1: 0.9841  (TP=31 FP=0 FN=1)
+    Italic — P: 1.0000  R: 0.9141  F1: 0.9551  (TP=117 FP=0 FN=11)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    French-Latin           0.001   0.004     0.001    2203
+    Nahuatl-Latin          0.004   0.029     0.004    1248
+
+--- Nahuatl-French/page_75 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0006
+    GCER: 0.0007  (0.07%)
+    WER:  0.0034  (0.34%)
+    Spans: 102 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9726  (TP=160 FP=7 FN=2)
+    Bold   — P: 1.0000  R: 0.9744  F1: 0.9870  (TP=38 FP=0 FN=1)
+    Italic — P: 0.9457  R: 0.9919  F1: 0.9683  (TP=122 FP=7 FN=1)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    French-Latin           0.000   0.000     0.000    1728
+    Nahuatl-Latin          0.000   0.000     0.000    1465
+    Spanish-Latin          0.000   0.000     0.000      15
+
+--- Punjabi-English/page_114 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0422
+    GCER: 0.0400  (4.00%)
+    WER:  0.1294  (12.94%)
+    Spans: 143 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8303  (TP=230 FP=88 FN=6)
+    Bold   — P: 0.9550  R: 0.9815  F1: 0.9680  (TP=106 FP=5 FN=2)
+    Italic — P: 0.5990  R: 0.9688  F1: 0.7403  (TP=124 FP=83 FN=4)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.2434
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.014   0.013     0.014    1796
+    Punjabi-Gurmukhi       0.085   0.164     0.085     281
+    Punjabi-Latin          0.186   0.833     0.186     474
+
+--- Punjabi-English/page_28 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0374
+    GCER: 0.0361  (3.61%)
+    WER:  0.1349  (13.49%)
+    Spans: 145 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9698  (TP=209 FP=10 FN=3)
+    Bold   — P: 0.9643  R: 0.9730  F1: 0.9686  (TP=108 FP=4 FN=3)
+    Italic — P: 0.9439  R: 1.0000  F1: 0.9712  (TP=101 FP=6 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    1852
+    Punjabi-Gurmukhi       0.092   0.183     0.092     315
+    Punjabi-Latin          0.165   0.662     0.165     382
+
+--- Punjabi-English/page_300 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0355
+    GCER: 0.0317  (3.17%)
+    WER:  0.1302  (13.02%)
+    Spans: 143 matched, 1 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8538  (TP=184 FP=61 FN=2)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=72 FP=0 FN=0)
+    Italic — P: 0.6474  R: 0.9825  F1: 0.7805  (TP=112 FP=61 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.004     0.001    1962
+    Punjabi-Gurmukhi       0.062   0.167     0.062     210
+    Punjabi-Latin          0.158   0.817     0.158     354
+
+--- Reel-English/page_17 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0000
+    GCER: 0.0000  (0.00%)
+    WER:  0.0000  (0.00%)
+    Spans: 46 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9500  (TP=76 FP=6 FN=2)
+    Bold   — P: 0.9104  R: 0.9683  F1: 0.9385  (TP=61 FP=6 FN=2)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=15 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000     337
+    Reel-IPA               0.000   0.000     0.000      99
+    Reel-Latin             0.000   0.000     0.000     329
+
+--- Reel-English/page_47 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0000
+    GCER: 0.0000  (0.00%)
+    WER:  0.0000  (0.00%)
+    Spans: 48 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9903  (TP=102 FP=2 FN=0)
+    Bold   — P: 0.9787  R: 1.0000  F1: 0.9892  (TP=92 FP=2 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=10 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000     418
+    Reel-IPA               0.000   0.000     0.000      69
+    Reel-Latin             0.000   0.000     0.000     352
+
+--- Reel-English/page_89 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0000
+    GCER: 0.0000  (0.00%)
+    WER:  0.0000  (0.00%)
+    Spans: 46 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9877  (TP=80 FP=2 FN=0)
+    Bold   — P: 0.9710  R: 1.0000  F1: 0.9853  (TP=67 FP=2 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=13 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000     503
+    Reel-IPA               0.000   0.000     0.000      68
+    Reel-Latin             0.000   0.000     0.000     288
+
+--- Ritharngu-English/page_185 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0126
+    GCER: 0.0134  (1.34%)
+    WER:  0.0543  (5.43%)
+    Spans: 81 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6633  (TP=66 FP=2 FN=65)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=65)
+    Italic — P: 0.9706  R: 1.0000  F1: 0.9851  (TP=66 FP=2 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.001   0.013     0.001    1054
+    Latin-Latin            0.000   0.000     0.000      73
+    Ritharngu-Latin        0.061   0.219     0.061     394
+
+--- Ritharngu-English/page_205 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0357
+    GCER: 0.0381  (3.81%)
+    WER:  0.1781  (17.81%)
+    Spans: 84 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6009  (TP=67 FP=0 FN=89)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=87)
+    Italic — P: 1.0000  R: 0.9710  F1: 0.9853  (TP=67 FP=0 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.005     0.000     941
+    Latin-Latin            0.000   0.000     0.000      84
+    Ritharngu-Latin        0.135   0.651     0.135     569
+
+--- Ritharngu-English/page_232 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0204
+    GCER: 0.0204  (2.04%)
+    WER:  0.0957  (9.57%)
+    Spans: 87 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9614  (TP=112 FP=1 FN=8)
+    Bold   — P: 1.0000  R: 0.9286  F1: 0.9630  (TP=65 FP=0 FN=5)
+    Italic — P: 0.9792  R: 0.9400  F1: 0.9592  (TP=47 FP=1 FN=3)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Dayi-Latin             0.000   0.000     0.000       5
+    English-Latin          0.000   0.000     0.000    1189
+    Ritharngu-Latin        0.095   0.485     0.095     464
+
+--- Sanskrit-English/page_559 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0149
+    GCER: 0.0154  (1.54%)
+    WER:  0.0752  (7.52%)
+    Spans: 77 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8924  (TP=112 FP=15 FN=12)
+    Bold   — P: 0.7857  R: 0.7857  F1: 0.7857  (TP=44 FP=12 FN=12)
+    Italic — P: 0.9577  R: 1.0000  F1: 0.9784  (TP=68 FP=3 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.024     0.000    1036
+    Sanskrit-Devanagari    0.064   0.293     0.064     296
+    Sanskrit-Latin         0.000   0.000     0.000      37
+
+--- Sanskrit-English/page_880 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0201
+    GCER: 0.0235  (2.35%)
+    WER:  0.0851  (8.51%)
+    Spans: 77 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8710  (TP=179 FP=15 FN=38)
+    Bold   — P: 0.8952  R: 0.7450  F1: 0.8132  (TP=111 FP=13 FN=38)
+    Italic — P: 0.9714  R: 1.0000  F1: 0.9855  (TP=68 FP=2 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.004     0.000     896
+    Sanskrit-Devanagari    0.095   0.342     0.095     378
+    Sanskrit-Latin         0.000   0.000     0.000      22
+
+--- Sanskrit-English/page_9 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0429
+    GCER: 0.0485  (4.85%)
+    WER:  0.1701  (17.01%)
+    Spans: 77 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.5091  (TP=56 FP=4 FN=104)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=104)
+    Italic — P: 0.9333  R: 1.0000  F1: 0.9655  (TP=56 FP=4 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.004     0.000     836
+    Sanskrit-Devanagari    0.089   0.250     0.089     360
+
+--- Shilluk-English/page_28 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0023
+    GCER: 0.0024  (0.24%)
+    WER:  0.0148  (1.48%)
+    Spans: 55 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9634  (TP=92 FP=1 FN=6)
+    Bold   — P: 0.9833  R: 0.9077  F1: 0.9440  (TP=59 FP=1 FN=6)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=33 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    2225
+    Shilluk-Latin          0.027   0.154     0.027     225
+
+--- Shilluk-English/page_3 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0232
+    GCER: 0.0106  (1.06%)
+    WER:  0.0147  (1.47%)
+    Spans: 50 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9814  (TP=79 FP=3 FN=0)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=65 FP=0 FN=0)
+    Italic — P: 0.8235  R: 1.0000  F1: 0.9032  (TP=14 FP=3 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    1707
+    Shilluk-Latin          0.000   0.000     0.000     282
+
+--- Shilluk-English/page_7 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0015
+    GCER: 0.0015  (0.15%)
+    WER:  0.0106  (1.06%)
+    Spans: 55 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9244  (TP=110 FP=17 FN=1)
+    Bold   — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=56 FP=0 FN=0)
+    Italic — P: 0.7606  R: 0.9818  F1: 0.8571  (TP=54 FP=17 FN=1)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.006     0.000    2025
+    Shilluk-Latin          0.003   0.020     0.003     328
+
+--- Syriac-English/page_33 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1180
+    GCER: 0.1095  (10.95%)
+    WER:  0.2271  (22.71%)
+    Spans: 57 matched, 0 missing, 1 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8475  (TP=50 FP=8 FN=10)
+    Bold   — P: 0.7714  R: 0.7297  F1: 0.7500  (TP=27 FP=8 FN=10)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=23 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.004   0.010     0.004     797
+    Persian-Arabic         0.143   0.500     0.143      63
+    Syriac-Syriac          0.617   0.925     0.617     206
+    Turkish-Arabic         0.429   1.000     0.429       7
+
+--- Syriac-English/page_55 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1599
+    GCER: 0.1455  (14.55%)
+    WER:  0.2471  (24.71%)
+    Spans: 56 matched, 2 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7789  (TP=74 FP=16 FN=26)
+    Bold   — P: 0.7544  R: 0.6324  F1: 0.6880  (TP=43 FP=14 FN=25)
+    Italic — P: 0.9394  R: 0.9688  F1: 0.9538  (TP=31 FP=2 FN=1)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0690
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.003   0.011     0.003     741
+    Greek-Greek            0.000   0.000     0.000      14
+    Persian-Arabic         0.290   0.500     0.290      31
+    Syriac-Syriac          0.513   0.873     0.513     318
+
+--- Syriac-English/page_75 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1189
+    GCER: 0.1282  (12.82%)
+    WER:  0.2154  (21.54%)
+    Spans: 57 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8043  (TP=74 FP=14 FN=22)
+    Bold   — P: 0.8113  R: 0.6719  F1: 0.7350  (TP=43 FP=10 FN=21)
+    Italic — P: 0.8857  R: 0.9688  F1: 0.9254  (TP=31 FP=4 FN=1)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.014   0.010     0.014     806
+    Greek-Greek            0.000   0.000     0.000      25
+    Hebrew-Hebrew          0.000   0.000     0.000       8
+    Persian-Arabic         0.034   0.167     0.033      29
+    Syriac-Syriac          0.532   0.927     0.532     344
+
+--- Telugu-English/page_151 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0598
+    GCER: 0.0488  (4.88%)
+    WER:  0.1822  (18.22%)
+    Spans: 73 matched, 1 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9048  (TP=76 FP=8 FN=8)
+    Bold   — P: 0.8333  R: 0.8140  F1: 0.8235  (TP=35 FP=7 FN=8)
+    Italic — P: 0.9762  R: 1.0000  F1: 0.9880  (TP=41 FP=1 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0676
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.037   0.100     0.037    1237
+    Telugu-Telugu          0.005   0.289     0.005     202
+
+--- Telugu-English/page_646 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0126
+    GCER: 0.0139  (1.39%)
+    WER:  0.0372  (3.72%)
+    Spans: 72 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9735  (TP=92 FP=5 FN=0)
+    Bold   — P: 0.9000  R: 1.0000  F1: 0.9474  (TP=45 FP=5 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=47 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    1113
+    Telugu-Telugu          0.015   0.060     0.015     205
+
+--- Telugu-English/page_80 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0161
+    GCER: 0.0143  (1.43%)
+    WER:  0.0663  (6.63%)
+    Spans: 67 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9889  (TP=89 FP=2 FN=0)
+    Bold   — P: 0.9545  R: 1.0000  F1: 0.9767  (TP=42 FP=2 FN=0)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=47 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.011     0.000    1030
+    Telugu-Telugu          0.126   0.409     0.126     167
+
+--- Thai-Russian/page_591 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0485
+    GCER: 0.0582  (5.82%)
+    WER:  0.1765  (17.65%)
+    Spans: 65 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.5328  (TP=65 FP=37 FN=77)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=77)
+    Italic — P: 0.6373  R: 1.0000  F1: 0.7784  (TP=65 FP=37 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Latin-Latin            0.000   0.000     0.000      79
+    Russian-Cyrillic       0.006   0.025     0.006     898
+    Thai-Cyrillic          0.350   1.000     0.350     283
+    Thai-Thai              0.023   0.095     0.023     221
+
+--- Thai-Russian/page_67 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0943
+    GCER: 0.0989  (9.89%)
+    WER:  0.4576  (45.76%)
+    Spans: 66 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7773  (TP=82 FP=10 FN=37)
+    Bold   — P: 1.0000  R: 0.5195  F1: 0.6838  (TP=40 FP=0 FN=37)
+    Italic — P: 0.8077  R: 1.0000  F1: 0.8936  (TP=42 FP=10 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Latin-Latin            0.000   0.000     0.000      12
+    Russian-Cyrillic       0.079   0.432     0.079    1009
+    Thai-Cyrillic          0.369   1.000     0.369     295
+    Thai-Thai              0.028   0.167     0.028     248
+
+--- Thai-Russian/page_756 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0832
+    GCER: 0.0860  (8.60%)
+    WER:  0.5475  (54.75%)
+    Spans: 65 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9793  (TP=118 FP=3 FN=2)
+    Bold   — P: 0.9670  R: 0.9778  F1: 0.9724  (TP=88 FP=3 FN=2)
+    Italic — P: 1.0000  R: 1.0000  F1: 1.0000  (TP=30 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Latin-Latin            0.000   0.500     0.000      15
+    Russian-Cyrillic       0.104   0.584     0.104     949
+    Thai-Cyrillic          0.187   0.915     0.187     374
+    Thai-Thai              0.008   0.044     0.008     265
+
+--- Tiri-English/page_15 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0079
+    GCER: 0.0075  (0.75%)
+    WER:  0.0346  (3.46%)
+    Spans: 75 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=46)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=46)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000     853
+    French-Latin           0.000   0.000     0.000      10
+    Tiri-Latin             0.037   0.153     0.037     298
+
+--- Tiri-English/page_56 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0274
+    GCER: 0.0112  (1.12%)
+    WER:  0.0479  (4.79%)
+    Spans: 87 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=54)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=54)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.009     0.000     985
+    Tiri-Latin             0.045   0.143     0.045     357
+
+--- Tiri-English/page_66 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0065
+    GCER: 0.0054  (0.54%)
+    WER:  0.0256  (2.56%)
+    Spans: 85 matched, 0 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.0000  (TP=0 FP=0 FN=68)
+    Bold   — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=68)
+    Italic — P: 0.0000  R: 0.0000  F1: 0.0000  (TP=0 FP=0 FN=0)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0000
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.000   0.000     0.000    1026
+    French-Latin           0.000   0.000     0.000      14
+    Tiri-Latin             0.030   0.102     0.030     330
+
+--- Vernacular Syriac-Kurdish_Turkish-English/page_228 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1278
+    GCER: 0.0972  (9.72%)
+    WER:  0.1870  (18.70%)
+    Spans: 89 matched, 2 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7396  (TP=267 FP=79 FN=109)
+    Bold   — P: 0.5043  R: 0.3791  F1: 0.4328  (TP=58 FP=57 FN=95)
+    Italic — P: 0.9048  R: 0.9372  F1: 0.9207  (TP=209 FP=22 FN=14)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0220
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.022   0.026     0.021    1527
+    Kurdish-Arabic         0.250   1.000     0.250       4
+    Turkish-Arabic         0.000   0.000     0.000       8
+    Vernacular Syriac-Latin   0.059   0.386     0.059     287
+    Vernacular Syriac-Syriac   0.531   0.787     0.531     429
+
+--- Vernacular Syriac-Kurdish_Turkish-English/page_26 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1214
+    GCER: 0.0963  (9.63%)
+    WER:  0.2611  (26.11%)
+    Spans: 90 matched, 3 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.7488  (TP=161 FP=73 FN=35)
+    Bold   — P: 0.6311  R: 0.7476  F1: 0.6844  (TP=77 FP=45 FN=26)
+    Italic — P: 0.7500  R: 0.9032  F1: 0.8195  (TP=84 FP=28 FN=9)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0323
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Arabic-Arabic          0.263   0.625     0.256      38
+    English-Latin          0.026   0.072     0.025    1204
+    Kurdish-Latin          0.000   0.000     0.000       9
+    Persian-Arabic         0.455   1.000     0.455      22
+    Turkish-Arabic         0.420   0.727     0.420      50
+    Vernacular Syriac-Latin   0.047   0.345     0.047     317
+    Vernacular Syriac-Syriac   0.373   0.792     0.373     421
+
+--- Vernacular Syriac-Kurdish_Turkish-English/page_41 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.1570
+    GCER: 0.1481  (14.81%)
+    WER:  0.2937  (29.37%)
+    Spans: 88 matched, 2 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.6574  (TP=142 FP=93 FN=55)
+    Bold   — P: 0.5429  R: 0.5481  F1: 0.5455  (TP=57 FP=48 FN=47)
+    Italic — P: 0.6538  R: 0.9140  F1: 0.7623  (TP=85 FP=45 FN=8)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0222
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    Arabic-Arabic          0.000   0.000     0.000      30
+    English-Latin          0.012   0.023     0.012    1213
+    Greek-Greek            0.000   0.000     0.000      25
+    Kurdish-Arabic         0.143   1.000     0.143      14
+    Persian-Arabic         0.273   0.833     0.273      33
+    Turkish-Arabic         0.028   0.143     0.028      36
+    Vernacular Syriac-Latin   0.149   0.473     0.149     309
+    Vernacular Syriac-Syriac   0.678   1.000     0.678     460
+
+--- Yiddish-English/page_1 ---
+
+  Character Recognition Quality:
+    TextEdit: 0.0416
+    GCER: 0.0443  (4.43%)
+    WER:  0.1496  (14.96%)
+    Spans: 84 matched, 1 missing, 0 extra
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.9433  (TP=158 FP=11 FN=8)
+    Bold   — P: 0.9222  R: 0.9326  F1: 0.9274  (TP=83 FP=7 FN=6)
+    Italic — P: 0.9494  R: 0.9740  F1: 0.9615  (TP=75 FP=4 FN=2)
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0118
+
+  Per-Language-Script Quality:
+    language-script         GCER     WER  TextEdit  gold_g
+    English-Latin          0.014   0.044     0.014    1152
+    Yiddish-Hebrew         0.100   0.494     0.100     461
+
+========================================================================
+AGGREGATE (85 pages)
+========================================================================
+
+  Character Recognition Quality:
+    TextEdit: 0.0403
+    GCER: 0.0463
+    WER:  0.1216
+
+  Markup / Typography Preservation:
+    Typography (bold+italic pooled) — F1: 0.8040
+    Bold   — P: 0.8610  R: 0.6076  F1: 0.7124
+    Italic — P: 0.8344  R: 0.9511  F1: 0.8889
+
+  Read Order (Structure Preservation):
+    ReadOrderEdit: 0.0403
+
+  Per-Language-Script Quality (aggregate):
+    language-script         GCER     WER  TextEdit  gold_g
+    Arabic-Arabic          0.183   0.375     0.181      71
+    Arabic-Latin           0.000   0.000     0.000       5
+    Assyrian-Cuneiform     0.660   0.994     0.660     421
+    Assyrian-Latin         0.549   0.629     0.549    1396
+    Bengalese-Bengali      0.031   0.096     0.031    1281
+    Canala-Latin           0.069   0.218     0.069    1043
+    Chepang-Latin          0.065   0.275     0.065    1914
+    Chinese-Han            0.000   0.110     0.000     414
+    Chukchi-Cyrillic Extended   0.115   0.528     0.112     750
+    Circassian-Arabic      0.577   0.939     0.577     442
+    Circassian-Latin       0.056   0.261     0.055     594
+    Dayi-Latin             0.000   0.000     0.000       5
+    Efik-Latin             0.013   0.057     0.013    1723
+    English-Latin          0.020   0.037     0.020   83325
+    Evenki-Cyrillic        0.031   0.172     0.031    1911
+    French-Latin           0.001   0.007     0.001    8246
+    Georgian-Georgian      0.002   0.051     0.002     477
+    Gojri-Devanagari       0.040   0.000     0.040     273
+    Gojri-Latin            0.000   0.091     0.000     465
+    Greek-Greek            0.028   0.167     0.028    2586
+    Gujarati-Gujarati      0.042   0.269     0.042     498
+    Hebrew-Hebrew          0.269   0.571     0.269      26
+    Hindi-Devanagari       0.004   0.011     0.004     838
+    Iñupiatun Eskimo-Latin   0.007   0.052     0.007    2961
+    Japanese-Kanji         0.217   0.424     0.217     138
+    Japanese-Katakana      0.047   0.186     0.047     405
+    Japanese-Latin         0.013   0.022     0.013    1747
+    Kashmiri-Arabic        0.762   0.979     0.762     551
+    Kashmiri-Latin         0.987   0.926     0.748     989
+    Khmer-Khmer            0.080   0.210     0.080     710
+    Kurdish-Arabic         0.167   1.000     0.167      18
+    Kurdish-Latin          0.000   0.000     0.000       9
+    Latin-Latin            0.000   0.021     0.000     376
+    Malay-Arabic           0.082   0.382     0.082     887
+    Malay-Latin            0.032   0.152     0.031     977
+    Na-IPA                 0.019   0.104     0.019     991
+    Na-Latin               0.000   0.000     0.000     124
+    Nahuatl-Latin          0.002   0.017     0.002    4215
+    Nepali-Latin           0.000   0.000     0.000       2
+    Old Persian-Latin      0.017   0.300     0.017      60
+    Persian-Arabic         0.213   0.568     0.213     178
+    Punjabi-Gurmukhi       0.082   0.172     0.082     806
+    Punjabi-Latin          0.171   0.772     0.171    1210
+    Reel-IPA               0.000   0.000     0.000     236
+    Reel-Latin             0.000   0.000     0.000     969
+    Ritharngu-Latin        0.102   0.472     0.102    1427
+    Russian-Cyrillic       0.046   0.268     0.046    7357
+    Sanskrit-Devanagari    0.084   0.299     0.084    1034
+    Sanskrit-Latin         0.000   0.000     0.000      59
+    Shilluk-Latin          0.008   0.048     0.008     835
+    Spanish-Latin          0.000   0.000     0.000      15
+    Syriac-Syriac          0.545   0.905     0.545     868
+    Telugu-Telugu          0.044   0.245     0.044     574
+    Thai-Cyrillic          0.292   0.967     0.292     952
+    Thai-Thai              0.019   0.101     0.019     734
+    Tiri-Latin             0.038   0.130     0.038     985
+    Turkish-Arabic         0.307   0.725     0.307     466
+    Vernacular Syriac-Latin   0.085   0.401     0.085     913
+    Vernacular Syriac-Syriac   0.532   0.860     0.532    1310
+    Yiddish-Hebrew         0.100   0.494     0.100     461

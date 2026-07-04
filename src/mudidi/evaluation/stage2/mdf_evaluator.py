@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -29,7 +30,9 @@ from mudidi.evaluation.stage2.mdf_metrics import (
     RecordSample,
 )
 from mudidi.evaluation.stage2.mdf_parser import parse_mdf, normalize_field_value
+from mudidi.evaluation.stage1.stage1_metrics import CharacterQualityMetrics
 from mudidi.evaluation.text_quality import aggregate_text_quality, merge_character_quality
+from mudidi.schemas.language_span import META
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,53 @@ class MdfEvaluator:
             Path(dictionary_languages_path) if dictionary_languages_path else None
         )
 
+    @staticmethod
+    def _projection_path_for_gold(gold_path: Path) -> Path:
+        page_id = gold_path.parent.name
+        return gold_path.with_name(f"{page_id}_mdf_lang_projection.json")
+
+    @classmethod
+    def _load_language_script_by_line(cls, gold_path: Path) -> Dict[int, str]:
+        projection_path = cls._projection_path_for_gold(gold_path)
+        if not projection_path.is_file():
+            return {}
+        data = json.loads(projection_path.read_text(encoding="utf-8"))
+        by_line: Dict[int, str] = {}
+        for field in data.get("fields", []):
+            line_index = field.get("line_index")
+            language = str(field.get("primary_language") or "").strip()
+            if isinstance(line_index, int) and language:
+                by_line[line_index] = language
+        return by_line
+
+    @staticmethod
+    def _lang_script_scoring_value(value: str) -> str:
+        normalized = normalize_field_value(value)
+        return "".join(
+            ch
+            for ch in normalized
+            if not ch.isspace() and not unicodedata.category(ch).startswith("P")
+        )
+
+    @classmethod
+    def _append_language_script_pair(
+        cls,
+        pairs: DefaultDict[str, List[tuple[str, str]]],
+        *,
+        language_by_line: Dict[int, str],
+        line_index: int,
+        gold_value: str,
+        pred_value: str,
+    ) -> None:
+        language = language_by_line.get(line_index)
+        if not language or language == META:
+            return
+        gold_scoring = cls._lang_script_scoring_value(gold_value)
+        pred_scoring = cls._lang_script_scoring_value(pred_value)
+        if not gold_scoring and not pred_scoring:
+            return
+        pairs[language].append((gold_scoring, pred_scoring))
+
     def evaluate(
         self,
         pred_path: str | Path,
@@ -111,11 +161,13 @@ class MdfEvaluator:
         headword_pairs: List[tuple[str, str]] = []
         gloss_pairs: List[tuple[str, str]] = []
         language_pairs: DefaultDict[str, List[tuple[str, str]]] = defaultdict(list)
+        language_script_pairs: DefaultDict[str, List[tuple[str, str]]] = defaultdict(list)
 
         language_map = load_language_map_for_page(
             pred_path,
             dictionary_languages_path=self.dictionary_languages_path,
         )
+        language_script_by_line = self._load_language_script_by_line(gold_path)
 
         for match in record_alignment.matched:
             gold_record = gold_records[match.gold_index]
@@ -139,6 +191,13 @@ class MdfEvaluator:
                 bucket = marker_role_bucket(gold_line.marker, language_map)
                 if bucket:
                     language_pairs[bucket].append((gold_value, pred_value))
+                self._append_language_script_pair(
+                    language_script_pairs,
+                    language_by_line=language_script_by_line,
+                    line_index=gold_line.line_index,
+                    gold_value=gold_line.value,
+                    pred_value=pred_line.value,
+                )
                 if markers_equivalent(
                     gold_line.marker,
                     pred_line.marker,
@@ -162,6 +221,16 @@ class MdfEvaluator:
             marker_counts.fn += len(line_alignment.missing_gold)
             marker_counts.fp += len(line_alignment.extra_pred)
 
+            for gold_idx in line_alignment.missing_gold:
+                gold_line = gold_record.lines[gold_idx]
+                self._append_language_script_pair(
+                    language_script_pairs,
+                    language_by_line=language_script_by_line,
+                    line_index=gold_line.line_index,
+                    gold_value=gold_line.value,
+                    pred_value="",
+                )
+
             if match.similarity < 0.95:
                 record_samples.append(
                     RecordSample(
@@ -178,6 +247,16 @@ class MdfEvaluator:
                     )
                 )
 
+        for gold_record_idx in record_alignment.missing_gold:
+            for gold_line in gold_records[gold_record_idx].lines:
+                self._append_language_script_pair(
+                    language_script_pairs,
+                    language_by_line=language_script_by_line,
+                    line_index=gold_line.line_index,
+                    gold_value=gold_line.value,
+                    pred_value="",
+                )
+
         read_order = compute_read_order_metrics(
             [m.gold_index for m in record_alignment.matched],
             [m.pred_index for m in record_alignment.matched],
@@ -187,6 +266,10 @@ class MdfEvaluator:
         language_quality = {
             bucket: aggregate_text_quality(pairs)
             for bucket, pairs in sorted(language_pairs.items())
+        }
+        language_script_quality = {
+            bucket: aggregate_text_quality(pairs)
+            for bucket, pairs in sorted(language_script_pairs.items())
         }
 
         return MdfPageMetrics(
@@ -205,6 +288,7 @@ class MdfEvaluator:
             headword_quality=aggregate_text_quality(headword_pairs),
             gloss_quality=aggregate_text_quality(gloss_pairs),
             language_quality=language_quality,
+            language_script_quality=language_script_quality,
             marker_confusion={g: dict(c) for g, c in confusion.items()},
             record_samples=record_samples[:12],
             marker_error_samples=marker_errors,
@@ -358,6 +442,39 @@ class MdfEvaluator:
         return row
 
     @staticmethod
+    def _parse_page_id(page_id: str) -> tuple[str, str]:
+        language, sep, page = page_id.partition("/")
+        if sep:
+            return language, page
+        return "", page_id
+
+    @staticmethod
+    def _language_script_metric_row(quality: CharacterQualityMetrics) -> dict:
+        return {
+            "GCER": round(quality.gcer, 6),
+            "WER": round(quality.wer, 6),
+            "TextEdit": round(quality.text_edit, 6),
+            "total_graphemes_gold": quality.total_graphemes_gold,
+            "total_graphemes_pred": quality.total_graphemes_pred,
+            "total_grapheme_edits": quality.total_grapheme_edits,
+            "total_words_gold": quality.total_words_gold,
+            "total_word_edits": quality.total_word_edits,
+        }
+
+    @classmethod
+    def _language_script_detailed_rows(cls, page: MdfPageMetrics) -> List[dict]:
+        language, page_name = cls._parse_page_id(page.page_id)
+        return [
+            {
+                "language": language,
+                "page": page_name,
+                "language_script": language_script,
+                **cls._language_script_metric_row(quality),
+            }
+            for language_script, quality in sorted(page.language_script_quality.items())
+        ]
+
+    @staticmethod
     def metrics_to_dict(metrics: MdfPageMetrics) -> dict:
         """Serialize page metrics for JSON reports."""
         return {
@@ -392,6 +509,12 @@ class MdfEvaluator:
             "language_quality": {
                 bucket: MdfEvaluator._quality_fields(bucket.replace(":", "_"), q)
                 for bucket, q in metrics.language_quality.items()
+            },
+            "language_script_quality": {
+                bucket: MdfEvaluator._quality_fields(
+                    f"LangScript_{bucket.replace(':', '_')}", q
+                )
+                for bucket, q in metrics.language_script_quality.items()
             },
             "marker_confusion": metrics.marker_confusion,
             "record_samples": [asdict(s) for s in metrics.record_samples],
@@ -451,7 +574,8 @@ class MdfEvaluator:
         language_cols = self._language_quality_columns(all_pages)
         base_fields = [
             "experiment",
-            "page_id",
+            "language",
+            "page",
             "Record_Accuracy",
             "MDF_Fields_F1",
             "ReadOrderEdit",
@@ -464,9 +588,11 @@ class MdfEvaluator:
         rows: List[dict] = []
         for exp, pages in results_by_exp.items():
             for page in pages:
+                language, page_name = self._parse_page_id(page.page_id)
                 row = {
                     "experiment": exp,
-                    "page_id": page.page_id,
+                    "language": language,
+                    "page": page_name,
                     "Record_Accuracy": round(page.record_accuracy, 6),
                     "MDF_Fields_F1": round(page.mdf_fields_f1, 6),
                     "ReadOrderEdit": round(page.read_order.read_order_edit, 6),
@@ -481,7 +607,8 @@ class MdfEvaluator:
                 agg = self._aggregate_dict(pages)
                 row = {
                     "experiment": exp,
-                    "page_id": "__aggregate__",
+                    "language": "__aggregate__",
+                    "page": "__aggregate__",
                     "Record_Accuracy": agg["Record_Accuracy"],
                     "MDF_Fields_F1": agg["MDF_Fields_F1"],
                     "ReadOrderEdit": agg["read_order"]["ReadOrderEdit"],
@@ -496,6 +623,76 @@ class MdfEvaluator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=base_fields)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def generate_per_language_script_detailed_csv(
+        self,
+        results_by_exp: Dict[str, List[MdfPageMetrics]],
+        output_path: Path,
+    ) -> None:
+        fields = [
+            "experiment",
+            "language",
+            "page",
+            "language_script",
+            "GCER",
+            "WER",
+            "TextEdit",
+            "total_graphemes_gold",
+            "total_graphemes_pred",
+            "total_grapheme_edits",
+            "total_words_gold",
+            "total_word_edits",
+        ]
+        rows = [
+            {"experiment": exp, **row}
+            for exp, pages in results_by_exp.items()
+            for page in pages
+            for row in self._language_script_detailed_rows(page)
+        ]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def generate_per_language_script_summary_csv(
+        self,
+        results_by_exp: Dict[str, List[MdfPageMetrics]],
+        output_path: Path,
+    ) -> None:
+        fields = [
+            "experiment",
+            "language",
+            "language_script",
+            "GCER",
+            "WER",
+            "TextEdit",
+        ]
+        rows: List[dict] = []
+        for exp, pages in results_by_exp.items():
+            grouped: DefaultDict[tuple[str, str], List[CharacterQualityMetrics]] = defaultdict(list)
+            for page in pages:
+                language, _page_name = self._parse_page_id(page.page_id)
+                for language_script, quality in page.language_script_quality.items():
+                    grouped[(language, language_script)].append(quality)
+            for (language, language_script), qualities in sorted(grouped.items()):
+                merged = merge_character_quality(qualities)
+                rows.append(
+                    {
+                        "experiment": exp,
+                        "language": language,
+                        "language_script": language_script,
+                        "GCER": round(merged.gcer, 6),
+                        "WER": round(merged.wer, 6),
+                        "TextEdit": round(merged.text_edit, 6),
+                    }
+                )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()
             writer.writerows(rows)
 
@@ -514,6 +711,8 @@ class MdfEvaluator:
         ]
         for bucket, quality in sorted(metrics.language_quality.items()):
             lines.append(f"  {bucket} GCER:       {quality.gcer:.4f}")
+        for bucket, quality in sorted(metrics.language_script_quality.items()):
+            lines.append(f"  lang-script {bucket} GCER: {quality.gcer:.4f}")
         return lines
 
     @staticmethod
@@ -561,5 +760,20 @@ class MdfEvaluator:
             )
             agg[f"{safe}_GCER"] = round(merged.gcer, 6)
             agg[f"{safe}_WER"] = round(merged.wer, 6)
+
+        lang_script_buckets: set[str] = set()
+        for page in results:
+            lang_script_buckets.update(page.language_script_quality.keys())
+        for bucket in sorted(lang_script_buckets):
+            safe = bucket.replace(":", "_")
+            merged = merge_character_quality(
+                [
+                    page.language_script_quality[bucket]
+                    for page in results
+                    if bucket in page.language_script_quality
+                ]
+            )
+            agg[f"LangScript_{safe}_GCER"] = round(merged.gcer, 6)
+            agg[f"LangScript_{safe}_WER"] = round(merged.wer, 6)
 
         return agg
