@@ -15,6 +15,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Iterable
 
@@ -42,6 +43,7 @@ class RepairConfig:
     min_anchor_coverage: float = 0.8
     max_span_to_value_ratio: float = 1.5
     allow_approximate: bool = True
+    min_changed_run_similarity: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,17 @@ class RepairResult:
     @property
     def changed_lines(self) -> int:
         return sum(1 for decision in self.decisions if decision.changed)
+
+
+@dataclass(frozen=True)
+class SourceSpan:
+    """Candidate Stage 1 source span for one MDF field value."""
+
+    start: int | None
+    end: int | None
+    match_status: str
+    coverage: float
+    reason: str = ""
 
 
 def is_lexical_char(char: str) -> bool:
@@ -147,7 +160,7 @@ def _find_approximate_token_span(
     normalized_value: str,
     cursor: int,
     config: RepairConfig,
-) -> tuple[int, int, float] | None:
+) -> SourceSpan | None:
     value_tokens = [
         token
         for token in _token_ranges(normalized_value)
@@ -156,48 +169,142 @@ def _find_approximate_token_span(
     if not value_tokens:
         return None
 
-    ranges: list[tuple[int, int, int, int]] = []
-    covered = 0
+    value_lexical = lexical_length(normalized_value)
+    if not value_lexical:
+        return None
+
+    candidates: set[tuple[int, int, float]] = set()
+    for anchor_index, (anchor_token, _anchor_value_start, _anchor_value_end) in enumerate(
+        value_tokens
+    ):
+        for anchor_start in _find_token_occurrences(source_text, anchor_token, cursor):
+            ranges = _build_ordered_token_ranges(
+                source_text,
+                value_tokens,
+                anchor_index,
+                anchor_start,
+                cursor,
+            )
+            if not ranges:
+                continue
+            covered = sum(lexical_length(token) for token, *_rest in ranges)
+            coverage = covered / value_lexical
+            if coverage < config.min_anchor_coverage:
+                continue
+
+            start = min(
+                max(0, source_start - value_start)
+                for _token, source_start, _end, value_start, _value_end in ranges
+            )
+            end = max(
+                min(len(source_text), source_end + len(normalized_value) - value_end)
+                for _token, _source_start, source_end, _value_start, value_end in ranges
+            )
+            if end <= start:
+                continue
+            if (end - start) / max(len(normalized_value), 1) > config.max_span_to_value_ratio:
+                continue
+            start, end = _expand_to_lexical_boundaries(source_text, start, end)
+            candidates.add((start, end, round(coverage, 8)))
+
+    if not candidates:
+        return None
+    candidate_ranges = {(start, end) for start, end, _coverage in candidates}
+    if len(candidate_ranges) > 1:
+        return SourceSpan(
+            start=None,
+            end=None,
+            match_status="none",
+            coverage=0.0,
+            reason="ambiguous_source_span",
+        )
+    start, end, coverage = max(candidates, key=lambda item: item[2])
+    return SourceSpan(start, end, "approximate-token", coverage)
+
+
+def _find_token_occurrences(text: str, token: str, cursor: int) -> list[int]:
+    starts: list[int] = []
     search_from = cursor
-    for token, _value_start, _value_end in value_tokens:
+    while search_from < len(text):
+        start = text.find(token, search_from)
+        if start == -1:
+            break
+        starts.append(start)
+        search_from = start + max(len(token), 1)
+    return starts
+
+
+def _build_ordered_token_ranges(
+    source_text: str,
+    value_tokens: list[tuple[str, int, int]],
+    anchor_index: int,
+    anchor_start: int,
+    cursor: int,
+) -> list[tuple[str, int, int, int, int]]:
+    anchor_token, anchor_value_start, anchor_value_end = value_tokens[anchor_index]
+    ranges: list[tuple[str, int, int, int, int]] = [
+        (
+            anchor_token,
+            anchor_start,
+            anchor_start + len(anchor_token),
+            anchor_value_start,
+            anchor_value_end,
+        )
+    ]
+
+    previous_limit = anchor_start
+    for token, value_start, value_end in reversed(value_tokens[:anchor_index]):
+        starts = [
+            start
+            for start in _find_token_occurrences(source_text, token, cursor)
+            if start + len(token) <= previous_limit
+        ]
+        if not starts:
+            continue
+        start = starts[-1]
+        ranges.insert(0, (token, start, start + len(token), value_start, value_end))
+        previous_limit = start
+
+    search_from = anchor_start + len(anchor_token)
+    for token, value_start, value_end in value_tokens[anchor_index + 1 :]:
         start = source_text.find(token, search_from)
         if start == -1:
-            start = source_text.find(token)
-        if start == -1:
             continue
-        end = start + len(token)
-        ranges.append((start, end, _value_start, _value_end))
-        covered += lexical_length(token)
-        search_from = end
+        ranges.append((token, start, start + len(token), value_start, value_end))
+        search_from = start + len(token)
 
-    value_lexical = lexical_length(normalized_value)
-    if not ranges or not value_lexical:
-        return None
-    coverage = covered / value_lexical
-    if coverage < config.min_anchor_coverage:
-        return None
-
-    start = min(
-        max(0, source_start - value_start)
-        for source_start, _end, value_start, _value_end in ranges
-    )
-    end = max(
-        min(len(source_text), source_end + len(normalized_value) - value_end)
-        for _source_start, source_end, _value_start, value_end in ranges
-    )
-    if end <= start:
-        return None
-    if (end - start) / max(len(normalized_value), 1) > config.max_span_to_value_ratio:
-        return None
-    start, end = _expand_to_lexical_boundaries(source_text, start, end)
-    return start, end, coverage
+    return ranges
 
 
-def _replace_lexical_runs(template: str, source_value: str) -> str | None:
+def _changed_runs_are_similar(
+    template_runs: list[LexicalRun],
+    source_runs: list[LexicalRun],
+    config: RepairConfig,
+) -> bool:
+    for template_run, source_run in zip(template_runs, source_runs):
+        if template_run.text == source_run.text:
+            continue
+        similarity = SequenceMatcher(
+            None,
+            template_run.text.casefold(),
+            source_run.text.casefold(),
+        ).ratio()
+        if similarity < config.min_changed_run_similarity:
+            return False
+    return True
+
+
+def _replace_lexical_runs(
+    template: str,
+    source_value: str,
+    config: RepairConfig,
+) -> tuple[str, str] | None:
     template_runs = lexical_runs(template)
     source_runs = lexical_runs(source_value)
     if not template_runs or len(template_runs) != len(source_runs):
         return None
+    if not _changed_runs_are_similar(template_runs, source_runs, config):
+        return None, "low_similarity_lexical_replacement"
 
     pieces: list[str] = []
     cursor = 0
@@ -206,7 +313,7 @@ def _replace_lexical_runs(template: str, source_value: str) -> str | None:
         pieces.append(source_run.text)
         cursor = template_run.end
     pieces.append(template[cursor:])
-    return "".join(pieces)
+    return "".join(pieces), ""
 
 
 def _find_source_span(
@@ -214,14 +321,14 @@ def _find_source_span(
     normalized_value: str,
     cursor: int,
     config: RepairConfig,
-) -> tuple[int, int, str, float] | None:
+) -> SourceSpan | None:
     exact = _find_exact(source_text, normalized_value, cursor)
     if exact is not None:
-        return exact[0], exact[1], "exact", 1.0
+        return SourceSpan(exact[0], exact[1], "exact", 1.0)
 
     compact = _find_compact(source_text, normalized_value, cursor)
     if compact is not None:
-        return compact[0], compact[1], "compact", 1.0
+        return SourceSpan(compact[0], compact[1], "compact", 1.0)
 
     if not config.allow_approximate:
         return None
@@ -234,8 +341,7 @@ def _find_source_span(
     )
     if approximate is None:
         return None
-    start, end, coverage = approximate
-    return start, end, "approximate-token", coverage
+    return approximate
 
 
 def repair_mdf_text(
@@ -297,8 +403,28 @@ def repair_mdf_text(
                 )
             )
             continue
+        if span.start is None or span.end is None:
+            output_lines.append(line)
+            decisions.append(
+                RepairDecision(
+                    line_number=line_number,
+                    marker=marker,
+                    status="skipped",
+                    match_status=span.match_status,
+                    changed=False,
+                    original_value=value,
+                    repaired_value=value,
+                    source_value="",
+                    anchor_coverage=span.coverage,
+                    reason=span.reason or "no_safe_source_span",
+                )
+            )
+            continue
 
-        start, end, match_status, coverage = span
+        start = span.start
+        end = span.end
+        match_status = span.match_status
+        coverage = span.coverage
         source_value = source_display_text[start:end]
         if match_status in {"exact", "compact"}:
             output_lines.append(line)
@@ -321,8 +447,8 @@ def repair_mdf_text(
             cursor = max(cursor, end)
             continue
 
-        repaired_value = _replace_lexical_runs(value, source_value)
-        if repaired_value is None:
+        replacement = _replace_lexical_runs(value, source_value, config)
+        if replacement is None:
             output_lines.append(line)
             decisions.append(
                 RepairDecision(
@@ -338,6 +464,27 @@ def repair_mdf_text(
                     source_end=end,
                     anchor_coverage=coverage,
                     reason="lexical_run_count_mismatch",
+                )
+            )
+            cursor = max(cursor, end)
+            continue
+        repaired_value, replacement_reason = replacement
+        if replacement_reason:
+            output_lines.append(line)
+            decisions.append(
+                RepairDecision(
+                    line_number=line_number,
+                    marker=marker,
+                    status="skipped",
+                    match_status=match_status,
+                    changed=False,
+                    original_value=value,
+                    repaired_value=value,
+                    source_value=source_value,
+                    source_start=start,
+                    source_end=end,
+                    anchor_coverage=coverage,
+                    reason=replacement_reason,
                 )
             )
             cursor = max(cursor, end)

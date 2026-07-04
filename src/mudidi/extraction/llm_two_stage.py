@@ -30,14 +30,24 @@ Stage 1 uses response_format with a Pydantic schema enforced by the API:
 Stage 2 emits free-form MDF text (Pass 2) after marker discovery (Pass 1).
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+import copy
 import json
+import re
 import threading
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 
+from mudidi.agentic.verifier_loop import (
+    AgenticLoopConfig,
+    AgenticPatchVerifierDecision,
+    AgenticVerifierDecision,
+    patch_decision_to_verifier_decision,
+    run_bounded_verifier_loop,
+)
+from mudidi.evaluation.stage2.mdf_parser import parse_mdf
 from mudidi.evaluation.stage1.flatten import flat_transcription_to_text
 from mudidi.extraction.base import ExtractionStrategy
 from mudidi.llm.pass_1 import (
@@ -171,7 +181,6 @@ def _sanitize_messages(messages: list) -> list:
     Return a JSON-safe copy of the LLM messages with base64 image data replaced
     by a compact placeholder.  Keeps the full prompt text intact for debugging.
     """
-    import copy, re
     sanitized = copy.deepcopy(messages)
     b64_pattern = re.compile(r"(data:[^;]+;base64,)(.+)")
     for msg in sanitized:
@@ -233,6 +242,171 @@ def _transcription_to_tsv(result: TranscriptionResponse) -> str:
     return "\n".join(rows)
 
 
+def _stage1_verifier_system_prompt() -> str:
+    return (
+        "You are a conservative verifier for Stage 1 dictionary OCR. "
+        "Judge whether the transcript faithfully copies the current page image. "
+        "Do not reward interpretation or correction. Return only structured JSON "
+        "matching the schema. Use decision=accept when the output is good enough, "
+        "decision=retry only for concrete fixable issues, and decision=reject only "
+        "when correction is unsafe. For every retry issue, provide localized "
+        "evidence: line_index when known, current_text copied from the current "
+        "output when applicable, and expected_text or suggested_fix grounded in "
+        "the page image. Never leave current_text and expected_text empty for a "
+        "retry issue that asks for a text edit; if you cannot specify the exact "
+        "span, do not request retry for that issue."
+    )
+
+
+def _stage1_rewriter_system_prompt() -> str:
+    return (
+        "You are a conservative Stage 1 OCR correction model. Revise only the "
+        "previous transcript where the verifier identified concrete problems. "
+        "Use the page image as the authority. Do not parse entries or assign MDF "
+        "fields. Make the minimum necessary edit for each localized finding and "
+        "leave unrelated lines unchanged. Return only the requested structured "
+        "Stage 1 JSON."
+    )
+
+
+def _stage1_patch_verifier_system_prompt() -> str:
+    return (
+        "You are a conservative patch-only verifier for Stage 1 dictionary OCR. "
+        "Judge whether the current transcript faithfully copies the page image. "
+        "Return only structured JSON matching the schema. Use decision=accept "
+        "when the transcript is good enough. Use decision=retry only when every "
+        "requested correction can be expressed as an exact line-local patch: "
+        "line_index, old exact substring currently present on that line, new exact "
+        "replacement, patch confidence, and brief visual evidence. Do not propose "
+        "broad alphabet-wide substitutions or conceptual rewrites. If you are not "
+        "sure the exact old substring appears once on that exact line, do not patch "
+        "it. Use decision=reject only when correction is unsafe."
+    )
+
+
+def _stage2_verifier_system_prompt() -> str:
+    return (
+        "You are a conservative verifier for Stage 2 Toolbox MDF extraction. "
+        "Judge whether the MDF is syntactically plausible and grounded in the "
+        "Stage 1 transcript. Return only structured JSON matching the schema. "
+        "Use decision=accept when the MDF is good enough, decision=retry only for "
+        "concrete fixable issues, and decision=reject only when correction is unsafe. "
+        "For every retry issue, provide localized evidence: line_index when known, "
+        "current_text copied from the current MDF when applicable, and expected_text "
+        "or suggested_fix grounded in the Stage 1 transcript. Never leave "
+        "current_text and expected_text empty for a retry issue that asks for a "
+        "text edit; if you cannot specify the exact span, do not request retry "
+        "for that issue."
+    )
+
+
+def _grounding_tokens(text: str) -> list[str]:
+    return [token.casefold() for token in re.findall(r"[\w'-]+", text, flags=re.UNICODE)]
+
+
+def _numbered_lines(text: str) -> str:
+    return "\n".join(f"{index}\t{line}" for index, line in enumerate(text.splitlines()))
+
+
+def _stage2_grounding_summary(transcribed_text: str, output: str) -> str:
+    """Return deterministic Stage 1↔Stage 2 grounding facts for verifier prompts."""
+    records = parse_mdf(output)
+    field_lines = [line for record in records for line in record.lines]
+    values_text = " ".join(line.value for line in field_lines)
+    stage1_tokens = set(_grounding_tokens(transcribed_text))
+    value_tokens = _grounding_tokens(values_text)
+    missing_tokens = [token for token in value_tokens if token not in stage1_tokens]
+    found_count = len(value_tokens) - len(missing_tokens)
+    marker_counts: dict[str, int] = {}
+    for line in field_lines:
+        marker_counts[line.marker] = marker_counts.get(line.marker, 0) + 1
+    marker_summary = ", ".join(
+        f"{marker}:{count}" for marker, count in sorted(marker_counts.items())
+    )
+    missing_sample = ", ".join(missing_tokens[:20])
+    return "\n".join(
+        [
+            f"mdf_record_count: {len(records)}",
+            f"mdf_field_line_count: {len(field_lines)}",
+            f"mdf_marker_counts: {marker_summary}",
+            f"stage1_token_count: {len(stage1_tokens)}",
+            f"stage2_value_token_count: {len(value_tokens)}",
+            f"stage2_value_tokens_found_in_stage1: {found_count}",
+            f"stage2_value_tokens_missing_from_stage1: {len(missing_tokens)}",
+            f"missing_stage2_value_tokens_sample: {missing_sample}",
+        ]
+    )
+
+
+def _stage2_rewriter_system_prompt() -> str:
+    return (
+        "You are a conservative Stage 2 MDF correction model. Revise only the "
+        "previous MDF lines needed to address verifier findings. Preserve MDF "
+        "markers, page-local scope, and text grounded in Stage 1. Return corrected "
+        "MDF text only, with no explanation or markdown fence. Make the minimum "
+        "necessary edit for each localized finding and leave unrelated lines "
+        "unchanged."
+    )
+
+
+def _stage2_verifier_user_text(
+    output: str,
+    *,
+    transcribed_text: str,
+    field_map: FieldMapPrompt,
+    attempt: int,
+) -> str:
+    grounding_summary = _stage2_grounding_summary(transcribed_text, output)
+    return (
+        f"Attempt: {attempt}\n\n"
+        "<field_map>\n"
+        f"{field_map.format_prompt_block()}\n"
+        "</field_map>\n\n"
+        "<stage1_transcript>\n"
+        f"{transcribed_text}\n"
+        "</stage1_transcript>\n\n"
+        "<stage2_mdf>\n"
+        f"{output}\n"
+        "</stage2_mdf>\n\n"
+        "<deterministic_grounding_summary>\n"
+        f"{grounding_summary}\n"
+        "</deterministic_grounding_summary>\n\n"
+        "Evaluate the MDF for marker syntax, missing obvious entries, hallucinated "
+        "field values, ungrounded lexical changes, and entry-boundary mistakes. "
+        "Use the deterministic grounding summary as a warning signal, especially "
+        "when many MDF value tokens do not appear in Stage 1. "
+        "Do not ask for a retry for harmless MDF-friendly punctuation or spacing "
+        "normalization."
+    )
+
+
+def _stage2_rewriter_user_text(
+    output: str,
+    *,
+    transcribed_text: str,
+    field_map: FieldMapPrompt,
+    decision: AgenticVerifierDecision,
+    attempt: int,
+) -> str:
+    return (
+        f"Correction attempt: {attempt}\n\n"
+        "<field_map>\n"
+        f"{field_map.format_prompt_block()}\n"
+        "</field_map>\n\n"
+        "<stage1_transcript>\n"
+        f"{transcribed_text}\n"
+        "</stage1_transcript>\n\n"
+        "<verifier_json>\n"
+        f"{decision.model_dump_json(indent=2)}\n"
+        "</verifier_json>\n\n"
+        "<previous_stage2_mdf>\n"
+        f"{output}\n"
+        "</previous_stage2_mdf>\n\n"
+        "Correct only the verifier-identified issues. Keep valid MDF markers and "
+        "do not introduce words or entries unsupported by the Stage 1 transcript."
+    )
+
+
 class TwoStageLLMExtraction(ExtractionStrategy):
     """
     Two-stage strategy: Stage 1 transcribes faithfully, Stage 2 emits direct MDF.
@@ -276,6 +450,18 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         media_reference: str = "auto",
         prompt_cache_key: Optional[str] = None,
         stage1_typography: bool = True,
+        stage1_agentic: bool = False,
+        stage2_agentic: bool = False,
+        stage1_agentic_patch_verifier: bool = False,
+        agentic_max_iterations: int = 2,
+        agentic_evaluator_model: Optional[str] = None,
+        agentic_rewriter_model: Optional[str] = None,
+        agentic_reasoning_effort: str = "low",
+        agentic_min_retry_confidence: float = 0.55,
+        agentic_require_concrete_retry_issue: bool = True,
+        agentic_max_rewrite_delta_ratio: float | None = 0.75,
+        agentic_prefer_verifier_patches: bool = True,
+        agentic_max_patches_per_attempt: int | None = 16,
     ):
         if stage1_mode not in ("column", "flat"):
             raise ValueError(f"stage1_mode must be 'column' or 'flat', got {stage1_mode!r}")
@@ -308,6 +494,20 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         self.media_reference = media_reference
         self.prompt_cache_key = prompt_cache_key
         self.stage1_typography = stage1_typography
+        self.stage1_agentic = stage1_agentic
+        self.stage2_agentic = stage2_agentic
+        self.stage1_agentic_patch_verifier = stage1_agentic_patch_verifier
+        self.agentic_loop_config = AgenticLoopConfig(
+            max_iterations=agentic_max_iterations,
+            min_retry_confidence=agentic_min_retry_confidence,
+            require_concrete_retry_issue=agentic_require_concrete_retry_issue,
+            max_rewrite_delta_ratio=agentic_max_rewrite_delta_ratio,
+            prefer_verifier_patches=agentic_prefer_verifier_patches,
+            max_patches_per_attempt=agentic_max_patches_per_attempt,
+        )
+        self.agentic_evaluator_model = agentic_evaluator_model
+        self.agentic_rewriter_model = agentic_rewriter_model
+        self.agentic_reasoning_effort = agentic_reasoning_effort
         self._field_map_lock = threading.Lock()
         self._field_map: Optional[FieldMapPrompt] = None
 
@@ -354,6 +554,8 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         """
         stage1_usage: Dict[str, Any] = {}
         stage2_usage: Dict[str, Any] = {}
+        stage1_agentic_usage: Dict[str, Any] = {}
+        stage2_agentic_usage: Dict[str, Any] = {}
         entries: List[DictionaryEntry] = []
         mdf_text = ""
         discovery_usage: Dict[str, Any] = {}
@@ -374,6 +576,15 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             if stage1_output_path:
                 base = Path(stage1_output_path)
                 base.parent.mkdir(parents=True, exist_ok=True)
+                if self.stage1_agentic:
+                    transcribed_text, stage1_agentic_usage = self._run_stage1_agentic_loop(
+                        initial_output=transcribed_text,
+                        image_path=image_path,
+                        ocr_result=ocr_result,
+                        artifact_dir=base.parent / "agentic" / "stage1",
+                        output_suffix=base.suffix,
+                        page_context=page_context,
+                    )
                 base.write_text(transcribed_text, encoding="utf-8")
                 stem_base = base.stem.replace("_stage1_flat", "").replace("_stage1", "")
                 raw1_path = base.parent / f"{stem_base}_stage1_raw.json"
@@ -421,6 +632,13 @@ class TwoStageLLMExtraction(ExtractionStrategy):
                 field_map,
                 page_context=page_context,
             )
+            if self.stage2_agentic and stage2_base:
+                mdf_text, stage2_agentic_usage = self._run_stage2_agentic_loop(
+                    initial_output=mdf_text,
+                    transcribed_text=transcribed_text,
+                    field_map=field_map,
+                    artifact_dir=stage2_base.parent / "agentic" / "stage2",
+                )
             stage2_usage = _with_elapsed(stage2_usage, stage2_started)
             print(f"Direct MDF ({len(mdf_text)} chars).")
 
@@ -446,18 +664,31 @@ class TwoStageLLMExtraction(ExtractionStrategy):
 
         if usage_path and (stage1_usage or stage2_usage or discovery_usage):
             total_cost = _sum_costs(
-                _sum_costs(stage1_usage.get("cost_usd"), stage2_usage.get("cost_usd")),
-                discovery_usage.get("cost_usd"),
+                _sum_costs(
+                    _sum_costs(
+                        stage1_usage.get("cost_usd"),
+                        stage2_usage.get("cost_usd"),
+                    ),
+                    _sum_costs(
+                        discovery_usage.get("cost_usd"),
+                        stage1_agentic_usage.get("total_cost_usd"),
+                    ),
+                ),
+                stage2_agentic_usage.get("total_cost_usd"),
             )
             total_elapsed = _sum_elapsed(
                 stage1_usage.get("elapsed_seconds") if stage1_usage else None,
                 discovery_usage.get("elapsed_seconds") if discovery_usage else None,
                 stage2_usage.get("elapsed_seconds") if stage2_usage else None,
+                stage1_agentic_usage.get("elapsed_seconds") if stage1_agentic_usage else None,
+                stage2_agentic_usage.get("elapsed_seconds") if stage2_agentic_usage else None,
             )
             page_usage = {
                 "stage1": stage1_usage or None,
+                "stage1_agentic": stage1_agentic_usage or None,
                 "field_discovery": discovery_usage or None,
                 "stage2": stage2_usage or None,
+                "stage2_agentic": stage2_agentic_usage or None,
                 "total_cost_usd": total_cost,
                 "total_elapsed_seconds": total_elapsed,
             }
@@ -720,6 +951,432 @@ class TwoStageLLMExtraction(ExtractionStrategy):
             prompt_cache_key=self.prompt_cache_key,
         )
         return mdf_text, raw, usage, _sanitize_messages(messages)
+
+    # ------------------------------------------------------------------
+    # Optional bounded verifier-rewriter loops
+    # ------------------------------------------------------------------
+
+    def _agentic_evaluator_model_for_stage(self, stage: str) -> str:
+        if self.agentic_evaluator_model:
+            return self.agentic_evaluator_model
+        if stage == "stage1":
+            return self.transcribe_model
+        return self.stage2_pass2_model
+
+    def _agentic_rewriter_model_for_stage(self, stage: str) -> str:
+        if self.agentic_rewriter_model:
+            return self.agentic_rewriter_model
+        if stage == "stage1":
+            return self.transcribe_model
+        return self.stage2_pass2_model
+
+    def _write_agentic_failure(
+        self,
+        artifact_dir: Path,
+        *,
+        stage: str,
+        error: Exception,
+    ) -> None:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "stage": stage,
+            "stop_reason": "agentic_error",
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "fallback": "kept_initial_stage_output",
+        }
+        (artifact_dir / "final_decision.json").write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    def _run_stage1_agentic_loop(
+        self,
+        *,
+        initial_output: str,
+        image_path: str,
+        ocr_result: OCRPageResult,
+        artifact_dir: Path,
+        output_suffix: str,
+        page_context: PageContext | None,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Verify/rewrite Stage 1 output, failing closed to the initial OCR."""
+        started = time.perf_counter()
+        try:
+            result = run_bounded_verifier_loop(
+                stage="stage1",
+                initial_output=initial_output,
+                artifact_dir=artifact_dir,
+                output_suffix=output_suffix or ".txt",
+                verify=lambda output, attempt: self._verify_stage1_output(
+                    output,
+                    image_path=image_path,
+                    ocr_result=ocr_result,
+                    page_context=page_context,
+                    attempt=attempt,
+                ),
+                rewrite=lambda output, decision, attempt: self._rewrite_stage1_output(
+                    output,
+                    decision=decision,
+                    image_path=image_path,
+                    ocr_result=ocr_result,
+                    page_context=page_context,
+                    attempt=attempt,
+                ),
+                config=self.agentic_loop_config,
+            )
+            print(
+                "Stage 1 agentic loop → "
+                f"{result.stop_reason} after {result.rewrite_count} rewrite(s)"
+            )
+            usage = dict(result.agentic_usage_summary)
+            usage["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+            usage["stop_reason"] = result.stop_reason
+            usage["rewrite_count"] = result.rewrite_count
+            usage["attempt_count"] = len(result.attempts)
+            return result.output, usage
+        except Exception as exc:
+            self._write_agentic_failure(artifact_dir, stage="stage1", error=exc)
+            print(f"Stage 1 agentic loop failed; keeping initial output: {exc}")
+            return initial_output, {
+                "elapsed_seconds": round(time.perf_counter() - started, 3),
+                "stop_reason": "agentic_error",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    def _run_stage2_agentic_loop(
+        self,
+        *,
+        initial_output: str,
+        transcribed_text: str,
+        field_map: FieldMapPrompt,
+        artifact_dir: Path,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Verify/rewrite Stage 2 MDF output, failing closed to initial MDF."""
+        started = time.perf_counter()
+        try:
+            result = run_bounded_verifier_loop(
+                stage="stage2",
+                initial_output=initial_output,
+                artifact_dir=artifact_dir,
+                output_suffix=".mdf.txt",
+                verify=lambda output, attempt: self._verify_stage2_output(
+                    output,
+                    transcribed_text=transcribed_text,
+                    field_map=field_map,
+                    attempt=attempt,
+                ),
+                rewrite=lambda output, decision, attempt: self._rewrite_stage2_output(
+                    output,
+                    transcribed_text=transcribed_text,
+                    field_map=field_map,
+                    decision=decision,
+                    attempt=attempt,
+                ),
+                config=self.agentic_loop_config,
+            )
+            print(
+                "Stage 2 agentic loop → "
+                f"{result.stop_reason} after {result.rewrite_count} rewrite(s)"
+            )
+            usage = dict(result.agentic_usage_summary)
+            usage["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+            usage["stop_reason"] = result.stop_reason
+            usage["rewrite_count"] = result.rewrite_count
+            usage["attempt_count"] = len(result.attempts)
+            return result.output, usage
+        except Exception as exc:
+            self._write_agentic_failure(artifact_dir, stage="stage2", error=exc)
+            print(f"Stage 2 agentic loop failed; keeping initial output: {exc}")
+            return initial_output, {
+                "elapsed_seconds": round(time.perf_counter() - started, 3),
+                "stop_reason": "agentic_error",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    def _verify_stage1_output(
+        self,
+        output: str,
+        *,
+        image_path: str,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> tuple[AgenticVerifierDecision, Dict[str, Any]]:
+        if self.stage1_agentic_patch_verifier:
+            return self._verify_stage1_output_with_patch_schema(
+                output,
+                image_path=image_path,
+                ocr_result=ocr_result,
+                page_context=page_context,
+                attempt=attempt,
+            )
+
+        mime = mime_type_for_path(image_path)
+        content: list = [
+            {
+                "type": "text",
+                "text": self._stage1_verifier_user_text(
+                    output,
+                    ocr_result=ocr_result,
+                    page_context=page_context,
+                    attempt=attempt,
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": image_data_url(image_path, mime)}},
+        ]
+        messages = [
+            {"role": "system", "content": _stage1_verifier_system_prompt()},
+            {"role": "user", "content": content},
+        ]
+        result, _, usage = llm.complete_structured(
+            model=self._agentic_evaluator_model_for_stage("stage1"),
+            messages=messages,
+            response_schema=AgenticVerifierDecision,
+            temperature=self.temperature,
+            max_tokens=4096,
+            reasoning_effort=self.agentic_reasoning_effort,
+        )
+        return result, usage
+
+    def _verify_stage1_output_with_patch_schema(
+        self,
+        output: str,
+        *,
+        image_path: str,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> tuple[AgenticVerifierDecision, Dict[str, Any]]:
+        mime = mime_type_for_path(image_path)
+        content: list = [
+            {
+                "type": "text",
+                "text": self._stage1_patch_verifier_user_text(
+                    output,
+                    ocr_result=ocr_result,
+                    page_context=page_context,
+                    attempt=attempt,
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": image_data_url(image_path, mime)}},
+        ]
+        messages = [
+            {"role": "system", "content": _stage1_patch_verifier_system_prompt()},
+            {"role": "user", "content": content},
+        ]
+        result, _, usage = llm.complete_structured(
+            model=self._agentic_evaluator_model_for_stage("stage1"),
+            messages=messages,
+            response_schema=AgenticPatchVerifierDecision,
+            temperature=self.temperature,
+            max_tokens=12000,
+            reasoning_effort=self.agentic_reasoning_effort,
+        )
+        return patch_decision_to_verifier_decision(result), usage
+
+    def _rewrite_stage1_output(
+        self,
+        output: str,
+        *,
+        decision: AgenticVerifierDecision,
+        image_path: str,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> tuple[str, Dict[str, Any]]:
+        mime = mime_type_for_path(image_path)
+        response_schema = _stage1_response_schema(
+            flat=self.stage1_mode == "flat",
+            typography=self.stage1_typography,
+        )
+        content: list = [
+            {
+                "type": "text",
+                "text": self._stage1_rewriter_user_text(
+                    output,
+                    decision=decision,
+                    ocr_result=ocr_result,
+                    page_context=page_context,
+                    attempt=attempt,
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": image_data_url(image_path, mime)}},
+        ]
+        messages = [
+            {"role": "system", "content": _stage1_rewriter_system_prompt()},
+            {"role": "user", "content": content},
+        ]
+        result, _, usage = llm.complete_structured(
+            model=self._agentic_rewriter_model_for_stage("stage1"),
+            messages=messages,
+            response_schema=response_schema,
+            temperature=self.temperature,
+            max_tokens=64000,
+            reasoning_effort=self.agentic_reasoning_effort,
+        )
+        if self.stage1_mode == "flat":
+            return (
+                flat_transcription_to_text(result.header, result.lines, result.footer),
+                usage,
+            )
+        return _transcription_to_tsv(result), usage
+
+    def _verify_stage2_output(
+        self,
+        output: str,
+        *,
+        transcribed_text: str,
+        field_map: FieldMapPrompt,
+        attempt: int,
+    ) -> tuple[AgenticVerifierDecision, Dict[str, Any]]:
+        messages = [
+            {"role": "system", "content": _stage2_verifier_system_prompt()},
+            {
+                "role": "user",
+                "content": _stage2_verifier_user_text(
+                    output,
+                    transcribed_text=transcribed_text,
+                    field_map=field_map,
+                    attempt=attempt,
+                ),
+            },
+        ]
+        result, _, usage = llm.complete_structured(
+            model=self._agentic_evaluator_model_for_stage("stage2"),
+            messages=messages,
+            response_schema=AgenticVerifierDecision,
+            temperature=self.temperature,
+            max_tokens=4096,
+            reasoning_effort=self.agentic_reasoning_effort,
+        )
+        return result, usage
+
+    def _rewrite_stage2_output(
+        self,
+        output: str,
+        *,
+        transcribed_text: str,
+        field_map: FieldMapPrompt,
+        decision: AgenticVerifierDecision,
+        attempt: int,
+    ) -> tuple[str, Dict[str, Any]]:
+        messages = [
+            {"role": "system", "content": _stage2_rewriter_system_prompt()},
+            {
+                "role": "user",
+                "content": _stage2_rewriter_user_text(
+                    output,
+                    transcribed_text=transcribed_text,
+                    field_map=field_map,
+                    decision=decision,
+                    attempt=attempt,
+                ),
+            },
+        ]
+        text, usage = llm.complete_with_usage(
+            model=self._agentic_rewriter_model_for_stage("stage2"),
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=64000,
+            reasoning_effort=self.agentic_reasoning_effort,
+        )
+        return text.strip(), usage
+
+    def _stage1_verifier_user_text(
+        self,
+        output: str,
+        *,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> str:
+        context = ""
+        if page_context is not None:
+            context = "\n\n<page_context>\n" + format_stage1_page_context_preamble(page_context) + "\n</page_context>"
+        ocr_hint = ocr_result.raw_text if ocr_result else ""
+        return (
+            f"Attempt: {attempt}\n"
+            f"Stage 1 mode: {self.stage1_mode}\n"
+            f"Typography tags expected: {self.stage1_typography}\n"
+            f"{context}\n\n"
+            "<ocr_reference>\n"
+            f"{ocr_hint}\n"
+            "</ocr_reference>\n\n"
+            "<stage1_output>\n"
+            f"{output}\n"
+            "</stage1_output>\n\n"
+            "Evaluate whether the Stage 1 output is faithful to the page image. "
+            "Focus on missing visible text, hallucinated text, repeated text, "
+            "wrong reading order, and malformed output structure."
+        )
+
+    def _stage1_patch_verifier_user_text(
+        self,
+        output: str,
+        *,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> str:
+        context = ""
+        if page_context is not None:
+            context = "\n\n<page_context>\n" + format_stage1_page_context_preamble(page_context) + "\n</page_context>"
+        ocr_hint = ocr_result.raw_text if ocr_result else ""
+        return (
+            f"Attempt: {attempt}\n"
+            f"Stage 1 mode: {self.stage1_mode}\n"
+            f"Typography tags expected: {self.stage1_typography}\n"
+            f"{context}\n\n"
+            "<ocr_reference>\n"
+            f"{ocr_hint}\n"
+            "</ocr_reference>\n\n"
+            "<stage1_output_numbered_lines>\n"
+            f"{_numbered_lines(output)}\n"
+            "</stage1_output_numbered_lines>\n\n"
+            "Evaluate whether the Stage 1 output is faithful to the page image. "
+            "If you choose retry, return only exact patches whose old substring "
+            "appears once on the stated numbered line. Prefer no patch over a "
+            "risky patch. Do not ask for broad script normalization."
+        )
+
+    def _stage1_rewriter_user_text(
+        self,
+        output: str,
+        *,
+        decision: AgenticVerifierDecision,
+        ocr_result: OCRPageResult,
+        page_context: PageContext | None,
+        attempt: int,
+    ) -> str:
+        context = ""
+        if page_context is not None:
+            context = "\n\n<page_context>\n" + format_stage1_page_context_preamble(page_context) + "\n</page_context>"
+        ocr_hint = ocr_result.raw_text if ocr_result else ""
+        return (
+            f"Correction attempt: {attempt}\n"
+            f"Stage 1 mode: {self.stage1_mode}\n"
+            f"Typography tags expected: {self.stage1_typography}\n"
+            f"{context}\n\n"
+            "<ocr_reference>\n"
+            f"{ocr_hint}\n"
+            "</ocr_reference>\n\n"
+            "<verifier_json>\n"
+            f"{decision.model_dump_json(indent=2)}\n"
+            "</verifier_json>\n\n"
+            "<previous_stage1_output>\n"
+            f"{output}\n"
+            "</previous_stage1_output>\n\n"
+            "Correct only the verifier-identified problems. Preserve visible "
+            "characters and line/row order. Return only the required structured "
+            "Stage 1 JSON schema."
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
     # Helpers

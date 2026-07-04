@@ -1,0 +1,567 @@
+"""Generic bounded verifier-rewriter loop.
+
+The loop is deliberately small and stage-agnostic. Stage-specific code supplies
+the verifier and rewriter callables; this module owns stop criteria and audit
+artifacts.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from difflib import SequenceMatcher
+import json
+from pathlib import Path
+import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+AgenticDecision = Literal["accept", "retry", "reject"]
+AgenticSeverity = Literal["low", "medium", "high"]
+AgenticStopReason = Literal[
+    "accepted",
+    "rejected",
+    "max_iterations",
+    "unchanged",
+    "repeated_issue",
+    "low_confidence_retry",
+    "vague_retry",
+    "destructive_rewrite",
+    "patch_quality_rejected",
+]
+
+
+class AgenticIssue(BaseModel):
+    """One verifier finding."""
+
+    type: str = Field(description="Short stable issue type, e.g. reading_order_error.")
+    severity: AgenticSeverity = "medium"
+    evidence: str = ""
+    suggested_fix: str = ""
+    line_index: int | None = Field(
+        default=None,
+        description=(
+            "0-based output line index for retry findings. Required whenever the "
+            "issue can be localized to one output line."
+        ),
+    )
+    current_text: str = Field(
+        default="",
+        description=(
+            "Exact current output span to change. Required for retry text edits; "
+            "leave empty only when the issue is not a direct text replacement."
+        ),
+    )
+    expected_text: str = Field(
+        default="",
+        description=(
+            "Exact replacement span or expected visible text. Required for retry "
+            "text edits; use an empty string only when deleting current_text."
+        ),
+    )
+
+
+class AgenticVerifierDecision(BaseModel):
+    """Structured verifier response used by both stages."""
+
+    decision: AgenticDecision
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    issues: list[AgenticIssue] = Field(default_factory=list)
+    retry_instruction: str = ""
+
+
+class AgenticTextPatch(BaseModel):
+    """One exact line-local text replacement proposed by a patch verifier."""
+
+    line_index: int = Field(description="0-based line index in the current output.")
+    old: str = Field(
+        description="Exact substring currently present on line_index. Must match once."
+    )
+    new: str = Field(
+        description="Exact replacement substring. Use empty string only for deletion."
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = Field(default="", description="Brief visible evidence for this patch.")
+
+
+class AgenticPatchVerifierDecision(BaseModel):
+    """Patch-only verifier response.
+
+    This schema intentionally removes broad prose rewrite instructions from the
+    action space. Retry means "apply these exact patches if they match safely."
+    """
+
+    decision: AgenticDecision
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    patches: list[AgenticTextPatch] = Field(default_factory=list)
+    reject_reason: str = ""
+
+
+def patch_decision_to_verifier_decision(
+    decision: AgenticPatchVerifierDecision,
+) -> AgenticVerifierDecision:
+    """Convert patch-only verifier output into the generic loop decision."""
+    issues = [
+        AgenticIssue(
+            type="exact_text_patch",
+            severity="medium",
+            evidence=patch.reason,
+            suggested_fix=f"{patch.old} -> {patch.new}",
+            line_index=patch.line_index,
+            current_text=patch.old,
+            expected_text=patch.new,
+        )
+        for patch in decision.patches
+    ]
+    return AgenticVerifierDecision(
+        decision=decision.decision,
+        confidence=decision.confidence,
+        issues=issues,
+        retry_instruction=decision.reject_reason,
+    )
+
+
+class AgenticLoopConfig(BaseModel):
+    """Loop controls shared by Stage 1 and Stage 2 agentic modes."""
+
+    max_iterations: int = Field(default=2, ge=0)
+    stop_on_repeated_issue: bool = True
+    min_retry_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    require_concrete_retry_issue: bool = True
+    max_rewrite_delta_ratio: float | None = Field(default=0.75, ge=0.0, le=1.0)
+    prefer_verifier_patches: bool = True
+    max_patches_per_attempt: int | None = Field(default=16, ge=1)
+
+
+class AgenticAttempt(BaseModel):
+    """Audit record for one verifier pass."""
+
+    attempt: int
+    decision: AgenticVerifierDecision
+    verifier_usage: dict[str, Any] | None = None
+    rewrite_usage: dict[str, Any] | None = None
+
+
+class AgenticLoopResult(BaseModel):
+    """Final output and audit metadata from a bounded loop run."""
+
+    stage: str
+    output: str
+    stop_reason: AgenticStopReason
+    rewrite_count: int
+    attempt_count: int
+    attempts: list[AgenticAttempt]
+    agentic_usage_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+VerifyReturn = AgenticVerifierDecision | tuple[AgenticVerifierDecision, dict[str, Any]]
+RewriteReturn = str | tuple[str, dict[str, Any]]
+VerifyFn = Callable[[str, int], VerifyReturn]
+RewriteFn = Callable[[str, AgenticVerifierDecision, int], RewriteReturn]
+
+
+def _normalized_for_change_check(text: str) -> str:
+    """Normalize only insignificant edges when detecting no-op rewrites."""
+    return "\n".join(line.rstrip() for line in text.strip().splitlines())
+
+
+def _issue_signature(decision: AgenticVerifierDecision) -> tuple[str, ...]:
+    """Return stable issue types used to catch repeated verifier loops."""
+    return tuple(issue.type for issue in decision.issues if issue.type)
+
+
+def _has_concrete_retry_issue(decision: AgenticVerifierDecision) -> bool:
+    """Whether a retry has enough localized evidence to justify rewriting."""
+    for issue in decision.issues:
+        has_text_evidence = bool(issue.evidence.strip()) and bool(issue.suggested_fix.strip())
+        has_span_edit = bool(issue.current_text.strip()) and (
+            issue.expected_text.strip() or issue.expected_text == ""
+        )
+        has_location = issue.line_index is not None and (
+            bool(issue.evidence.strip()) or has_span_edit
+        )
+        has_parseable_fix = issue.line_index is not None and (
+            _infer_issue_patch(issue) is not None
+        )
+        if has_text_evidence or has_span_edit or has_location or has_parseable_fix:
+            return True
+    return False
+
+
+def _rewrite_delta_ratio(before: str, after: str) -> float:
+    """Return rough normalized edit distance for conservative rewrite gating."""
+    normalized_before = _normalized_for_change_check(before)
+    normalized_after = _normalized_for_change_check(after)
+    if not normalized_before and not normalized_after:
+        return 0.0
+    return 1.0 - SequenceMatcher(None, normalized_before, normalized_after).ratio()
+
+
+def _split_verify_result(result: VerifyReturn) -> tuple[AgenticVerifierDecision, dict[str, Any] | None]:
+    if isinstance(result, tuple):
+        return result[0], result[1]
+    return result, None
+
+
+def _split_rewrite_result(result: RewriteReturn) -> tuple[str, dict[str, Any] | None]:
+    if isinstance(result, tuple):
+        return result[0], result[1]
+    return result, None
+
+
+def _merge_usage_totals(base: dict[str, Any], addition: dict[str, Any] | None) -> dict[str, Any]:
+    if not addition:
+        return dict(base)
+    merged = dict(base)
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        merged[key] = int(merged.get(key, 0) or 0) + int(addition.get(key, 0) or 0)
+    for key in (
+        "image_tokens",
+        "text_tokens",
+        "cached_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "reasoning_tokens",
+        "response_text_tokens",
+    ):
+        if addition.get(key) is not None:
+            merged[key] = int(merged.get(key, 0) or 0) + int(addition[key])
+    base_cost = merged.get("cost_usd")
+    add_cost = addition.get("cost_usd")
+    if base_cost is not None and add_cost is not None:
+        merged["cost_usd"] = round(float(base_cost) + float(add_cost), 8)
+    elif add_cost is not None:
+        merged["cost_usd"] = add_cost
+    return merged
+
+
+def _agentic_usage_summary(attempts: list[AgenticAttempt]) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    verifier_total: dict[str, Any] = {}
+    rewrite_total: dict[str, Any] = {}
+    for attempt in attempts:
+        verifier_total = _merge_usage_totals(verifier_total, attempt.verifier_usage)
+        rewrite_total = _merge_usage_totals(rewrite_total, attempt.rewrite_usage)
+        summary = _merge_usage_totals(summary, attempt.verifier_usage)
+        summary = _merge_usage_totals(summary, attempt.rewrite_usage)
+    if summary:
+        if summary.get("cost_usd") is not None:
+            summary["total_cost_usd"] = summary["cost_usd"]
+        summary["verifier"] = verifier_total or None
+        summary["rewriter"] = rewrite_total or None
+    return summary
+
+
+def _replace_once(text: str, old: str, new: str) -> str | None:
+    if not old or old == new:
+        return None
+    if text.count(old) != 1:
+        return None
+    return text.replace(old, new, 1)
+
+
+def _strip_patch_token(text: str) -> str:
+    text = text.strip()
+    text = text.strip("`")
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1]
+    return text.strip()
+
+
+def _infer_issue_patch(issue: AgenticIssue) -> tuple[str, str] | None:
+    old = issue.current_text
+    new = issue.expected_text
+    if old.strip():
+        return old, new
+
+    suggested = issue.suggested_fix.strip()
+    arrow_match = re.match(r"^(.{1,120}?)\s*(?:->|→)\s*(.{0,120})$", suggested)
+    if arrow_match:
+        inferred_old = _strip_patch_token(arrow_match.group(1))
+        inferred_new = _strip_patch_token(arrow_match.group(2))
+        if inferred_old and inferred_old != inferred_new:
+            return inferred_old, inferred_new
+
+    change_match = re.match(
+        r"(?i)^change\s+(['\"`])(.{1,120}?)\1\s+to\s+(['\"`])(.{0,120}?)\3",
+        suggested,
+    )
+    if change_match:
+        inferred_old = change_match.group(2).strip()
+        inferred_new = change_match.group(4).strip()
+        if inferred_old and inferred_old != inferred_new:
+            return inferred_old, inferred_new
+
+    remove_match = re.match(
+        r"(?i)^remove\s+(?:header|line|text)\s+(['\"`])(.{1,120}?)\1",
+        suggested,
+    )
+    if remove_match:
+        return remove_match.group(2), ""
+
+    return None
+
+
+def _apply_verifier_patches(
+    output: str,
+    decision: AgenticVerifierDecision,
+) -> str | None:
+    """Apply exact verifier-provided span edits when every edit is unambiguous."""
+    edits = [(issue, _infer_issue_patch(issue)) for issue in decision.issues]
+    edits = [(issue, patch) for issue, patch in edits if patch is not None]
+    if not edits:
+        return None
+
+    lines = output.splitlines()
+    trailing_newline = output.endswith("\n")
+    changed = False
+    patched_output = output
+
+    for issue, patch in edits:
+        current_text, expected_text = patch
+        if issue.line_index is not None:
+            if issue.line_index < 0 or issue.line_index >= len(lines):
+                continue
+            patched_line = _replace_once(
+                lines[issue.line_index],
+                current_text,
+                expected_text,
+            )
+            if patched_line is None:
+                continue
+            lines[issue.line_index] = patched_line
+            if patched_line == "":
+                lines.pop(issue.line_index)
+            changed = True
+            patched_output = "\n".join(lines) + ("\n" if trailing_newline else "")
+            continue
+
+        patched = _replace_once(patched_output, current_text, expected_text)
+        if patched is None:
+            continue
+        patched_output = patched
+        lines = patched_output.splitlines()
+        trailing_newline = patched_output.endswith("\n")
+        changed = True
+
+    return patched_output if changed else None
+
+
+def _patch_issue_count(decision: AgenticVerifierDecision) -> int:
+    return sum(1 for issue in decision.issues if _infer_issue_patch(issue) is not None)
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _write_json(path: Path, model: BaseModel) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        model.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
+def _write_json_data(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _finish(
+    *,
+    stage: str,
+    output: str,
+    stop_reason: AgenticStopReason,
+    rewrite_count: int,
+    attempts: list[AgenticAttempt],
+    artifact_dir: Path,
+) -> AgenticLoopResult:
+    result = AgenticLoopResult(
+        stage=stage,
+        output=output,
+        stop_reason=stop_reason,
+        rewrite_count=rewrite_count,
+        attempt_count=len(attempts),
+        attempts=attempts,
+        agentic_usage_summary=_agentic_usage_summary(attempts),
+    )
+    _write_json(artifact_dir / "final_decision.json", result)
+    return result
+
+
+def run_bounded_verifier_loop(
+    *,
+    stage: str,
+    initial_output: str,
+    artifact_dir: Path,
+    output_suffix: str,
+    verify: VerifyFn,
+    rewrite: RewriteFn,
+    config: AgenticLoopConfig,
+) -> AgenticLoopResult:
+    """Run a bounded stage-local verifier-rewriter loop.
+
+    ``max_iterations`` counts rewrite attempts after the initial output. Attempt
+    0 is always the normal stage output; attempt 1 is the first correction.
+    """
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    current = initial_output
+    attempts: list[AgenticAttempt] = []
+    previous_retry_signature: tuple[str, ...] | None = None
+    rewrite_count = 0
+
+    _write_text(artifact_dir / f"attempt_0_output{output_suffix}", current)
+
+    for attempt in range(config.max_iterations + 1):
+        decision, verifier_usage = _split_verify_result(verify(current, attempt))
+        attempt_record = AgenticAttempt(
+            attempt=attempt,
+            decision=decision,
+            verifier_usage=verifier_usage,
+        )
+        attempts.append(attempt_record)
+        _write_json(artifact_dir / f"attempt_{attempt}_verifier.json", decision)
+        if verifier_usage:
+            _write_json_data(
+                artifact_dir / f"attempt_{attempt}_verifier_usage.json",
+                verifier_usage,
+            )
+
+        if decision.decision == "accept":
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="accepted",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        if decision.decision == "reject":
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="rejected",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        if decision.confidence < config.min_retry_confidence:
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="low_confidence_retry",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        if config.require_concrete_retry_issue and not _has_concrete_retry_issue(decision):
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="vague_retry",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        if config.max_patches_per_attempt is not None:
+            patch_count = _patch_issue_count(decision)
+            if patch_count > config.max_patches_per_attempt:
+                return _finish(
+                    stage=stage,
+                    output=current,
+                    stop_reason="patch_quality_rejected",
+                    rewrite_count=rewrite_count,
+                    attempts=attempts,
+                    artifact_dir=artifact_dir,
+                )
+
+        signature = _issue_signature(decision)
+        if (
+            config.stop_on_repeated_issue
+            and attempt > 0
+            and signature
+            and signature == previous_retry_signature
+        ):
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="repeated_issue",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+        previous_retry_signature = signature
+
+        if rewrite_count >= config.max_iterations:
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="max_iterations",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        next_attempt = attempt + 1
+        rewritten = None
+        if config.prefer_verifier_patches:
+            rewritten = _apply_verifier_patches(current, decision)
+        if rewritten is None:
+            rewritten, rewrite_usage = _split_rewrite_result(
+                rewrite(current, decision, next_attempt)
+            )
+            if rewrite_usage:
+                attempt_record.rewrite_usage = rewrite_usage
+                _write_json_data(
+                    artifact_dir / f"attempt_{next_attempt}_rewrite_usage.json",
+                    rewrite_usage,
+                )
+        if _normalized_for_change_check(rewritten) == _normalized_for_change_check(current):
+            return _finish(
+                stage=stage,
+                output=current,
+                stop_reason="unchanged",
+                rewrite_count=rewrite_count,
+                attempts=attempts,
+                artifact_dir=artifact_dir,
+            )
+
+        if config.max_rewrite_delta_ratio is not None:
+            delta_ratio = _rewrite_delta_ratio(current, rewritten)
+            if delta_ratio > config.max_rewrite_delta_ratio:
+                _write_text(
+                    artifact_dir / f"attempt_{next_attempt}_rejected_output{output_suffix}",
+                    rewritten,
+                )
+                return _finish(
+                    stage=stage,
+                    output=current,
+                    stop_reason="destructive_rewrite",
+                    rewrite_count=rewrite_count,
+                    attempts=attempts,
+                    artifact_dir=artifact_dir,
+                )
+
+        rewrite_count += 1
+        current = rewritten
+        _write_text(artifact_dir / f"attempt_{next_attempt}_output{output_suffix}", current)
+
+    return _finish(
+        stage=stage,
+        output=current,
+        stop_reason="max_iterations",
+        rewrite_count=rewrite_count,
+        attempts=attempts,
+        artifact_dir=artifact_dir,
+    )

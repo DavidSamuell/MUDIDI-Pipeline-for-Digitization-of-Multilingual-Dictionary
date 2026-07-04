@@ -4,6 +4,7 @@ Usage: python -m mudidi.cli.extract [options]
 """
 
 import argparse
+import csv
 import json
 import re
 import subprocess
@@ -24,6 +25,8 @@ from mudidi.evaluation.stage2.mdf_lexical_repair import (
     normalize_stage1_text_for_repair,
     write_repair_audit,
 )
+from mudidi.evaluation.stage2.mdf_evaluator import MdfEvaluator
+from mudidi.evaluation.stage1.flat_evaluator import FlatStage1Evaluator
 from mudidi.paths import PARSE_RULES_FILENAME, PARSE_RULES_USAGE_FILENAME
 from mudidi.extraction.sample_entry import (
     configure_sample_entry_args,
@@ -65,6 +68,7 @@ from mudidi.utils.parse_rules_pages import (
     normalize_parse_rules_page_stems,
     select_parse_rules_sample_images,
 )
+from mudidi.utils.pdf_render import render_pdf_pages, run_needs_pdf_rasterization
 from mudidi.cli.model_args import attach_stage_models, register_model_arguments
 from mudidi.utils.pdf_split import extract_pdf_pages, parse_page_spec
 from mudidi.utils.stage1_input import read_stage1_transcript_text
@@ -86,11 +90,16 @@ def _gold_mdf_path_for_entry(
     output_dir: Path,
     stem: str,
     explicit: Optional[str],
+    entry_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Resolve gold MDF path for comparison."""
     if explicit:
         path = Path(explicit)
         return path if path.is_file() else None
+    if entry_dir is not None:
+        dataset_candidate = entry_dir / "Stage 2 MDF file" / stem / f"{stem}.mdf.txt"
+        if dataset_candidate.is_file():
+            return dataset_candidate
     for candidate in (
         output_dir / "stage-2-gold" / stem / f"{stem}_mdf",
         output_dir / "stage-2-gold" / stem / stem,
@@ -98,6 +107,183 @@ def _gold_mdf_path_for_entry(
         if candidate.is_file():
             return candidate
     return None
+
+
+def _attempt_number(path: Path) -> int:
+    match = re.search(r"attempt_(\d+)_output", path.name)
+    return int(match.group(1)) if match else -1
+
+
+def _load_agentic_verifier_summary(agentic_dir: Path, attempt: int) -> dict[str, str]:
+    verifier_path = agentic_dir / f"attempt_{attempt}_verifier.json"
+    if not verifier_path.is_file():
+        return {"verifier_decision": "", "verifier_confidence": "", "verifier_issues": ""}
+    data = json.loads(verifier_path.read_text(encoding="utf-8"))
+    issues = data.get("issues") or []
+    return {
+        "verifier_decision": str(data.get("decision", "")),
+        "verifier_confidence": str(data.get("confidence", "")),
+        "verifier_issues": ";".join(str(issue.get("type", "")) for issue in issues),
+    }
+
+
+def _write_stage2_agentic_attempt_metrics(
+    *,
+    agentic_dir: Path,
+    gold_path: Optional[Path],
+    page_id: str,
+    dictionary_languages_path: Optional[Path],
+) -> Optional[Path]:
+    """Evaluate each Stage 2 agentic attempt against gold when available."""
+    if gold_path is None or not gold_path.is_file() or not agentic_dir.is_dir():
+        return None
+
+    attempt_paths = sorted(
+        agentic_dir.glob("attempt_*_output.mdf.txt"),
+        key=_attempt_number,
+    )
+    if not attempt_paths:
+        return None
+
+    evaluator = MdfEvaluator(dictionary_languages_path=dictionary_languages_path)
+    rows: list[dict[str, object]] = []
+    json_pages: list[dict[str, object]] = []
+    for attempt_path in attempt_paths:
+        attempt = _attempt_number(attempt_path)
+        metrics = evaluator.evaluate(attempt_path, gold_path, page_id=page_id)
+        verifier = _load_agentic_verifier_summary(agentic_dir, attempt)
+        row: dict[str, object] = {
+            "attempt": attempt,
+            "output_path": str(attempt_path),
+            **verifier,
+            "Record_Accuracy": round(metrics.record_accuracy, 6),
+            "MDF_Fields_F1": round(metrics.mdf_fields_f1, 6),
+            "ReadOrderEdit": round(metrics.read_order.read_order_edit, 6),
+            "Field_Value_GCER": round(metrics.field_value_quality.gcer, 6),
+            "Field_Value_WER": round(metrics.field_value_quality.wer, 6),
+            "Headword_GCER": round(metrics.headword_quality.gcer, 6),
+            "Gloss_GCER": round(metrics.gloss_quality.gcer, 6),
+        }
+        rows.append(row)
+        json_pages.append(
+            {
+                "attempt": attempt,
+                "verifier": verifier,
+                "metrics": MdfEvaluator.metrics_to_dict(metrics),
+            }
+        )
+
+    csv_path = agentic_dir / "attempt_metrics.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    json_path = agentic_dir / "attempt_metrics.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "page_id": page_id,
+                "gold_path": str(gold_path),
+                "attempts": json_pages,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return csv_path
+
+
+def _stage1_gold_flat_path_for_entry(
+    entry_dir: Optional[Path],
+    stem: str,
+) -> Optional[Path]:
+    if entry_dir is None:
+        return None
+    candidate = (
+        entry_dir
+        / "Stage 1 Gold OCR"
+        / stem
+        / f"{stem}_stage1_GOLD_flat.txt"
+    )
+    return candidate if candidate.is_file() else None
+
+
+def _write_stage1_agentic_attempt_metrics(
+    *,
+    agentic_dir: Path,
+    gold_path: Optional[Path],
+    page_id: str,
+) -> Optional[Path]:
+    """Evaluate each Stage 1 agentic attempt against gold when available."""
+    if gold_path is None or not gold_path.is_file() or not agentic_dir.is_dir():
+        return None
+
+    attempt_paths = sorted(
+        (
+            p
+            for p in agentic_dir.glob("attempt_*_output*")
+            if p.is_file() and not p.name.endswith(".json")
+        ),
+        key=_attempt_number,
+    )
+    if not attempt_paths:
+        return None
+
+    evaluator = FlatStage1Evaluator(per_language_script=True)
+    rows: list[dict[str, object]] = []
+    json_pages: list[dict[str, object]] = []
+    for attempt_path in attempt_paths:
+        attempt = _attempt_number(attempt_path)
+        metrics = evaluator.evaluate(attempt_path, gold_path, page_id=page_id)
+        verifier = _load_agentic_verifier_summary(agentic_dir, attempt)
+        row: dict[str, object] = {
+            "attempt": attempt,
+            "output_path": str(attempt_path),
+            **verifier,
+            "TextEdit": round(metrics.character_quality.text_edit, 6),
+            "GCER": round(metrics.character_quality.gcer, 6),
+            "WER": round(metrics.character_quality.wer, 6),
+            "typography_f1": round(metrics.markup_quality.typography.f1, 6),
+            "ReadOrderEdit": round(metrics.read_order.read_order_edit, 6),
+        }
+        rows.append(row)
+        json_pages.append(
+            {
+                "attempt": attempt,
+                "verifier": verifier,
+                "metrics": {
+                    "page_id": metrics.page_id,
+                    "TextEdit": row["TextEdit"],
+                    "GCER": row["GCER"],
+                    "WER": row["WER"],
+                    "typography_f1": row["typography_f1"],
+                    "ReadOrderEdit": row["ReadOrderEdit"],
+                },
+            }
+        )
+
+    csv_path = agentic_dir / "attempt_metrics.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    json_path = agentic_dir / "attempt_metrics.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "page_id": page_id,
+                "gold_path": str(gold_path),
+                "attempts": json_pages,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return csv_path
 
 
 def _entry_dir_for_run(
@@ -127,13 +313,6 @@ _STRATEGY_CHOICES = list(_STRATEGIES.keys()) + ["vlm_ocr"]
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 _PDF_EXTS = {".pdf"}
 _TEXT_EXTS = {".txt", ".md", ".docx"}
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-from mudidi.utils.pdf_render import render_pdf_pages, run_needs_pdf_rasterization
-
-
 def _render_pdf_pages(pdf_path: Path, cache_dir: Path, dpi: int = 200) -> List[Path]:
     """Render each page of ``pdf_path`` to a PNG under ``cache_dir``."""
     return render_pdf_pages(pdf_path, cache_dir, dpi=dpi)
@@ -606,6 +785,36 @@ def _build_strategy(
             media_reference=getattr(args, "media_reference", "auto"),
             prompt_cache_key=getattr(args, "prompt_cache_key", None),
             stage1_typography=not getattr(args, "no_stage1_typography", False),
+            stage1_agentic=bool(getattr(args, "stage1_agentic", False)),
+            stage2_agentic=bool(getattr(args, "stage2_agentic", False)),
+            stage1_agentic_patch_verifier=bool(
+                getattr(args, "stage1_agentic_patch_verifier", False)
+            ),
+            agentic_max_iterations=int(
+                getattr(args, "agentic_max_iterations", 2) or 0
+            ),
+            agentic_evaluator_model=getattr(args, "agentic_evaluator_model", None),
+            agentic_rewriter_model=getattr(args, "agentic_rewriter_model", None),
+            agentic_reasoning_effort=getattr(args, "agentic_reasoning_effort", "low"),
+            agentic_min_retry_confidence=float(
+                getattr(args, "agentic_min_retry_confidence", 0.55)
+            ),
+            agentic_require_concrete_retry_issue=not getattr(
+                args,
+                "no_agentic_concrete_retry_gate",
+                False,
+            ),
+            agentic_max_rewrite_delta_ratio=float(
+                getattr(args, "agentic_max_rewrite_delta_ratio", 0.75)
+            ),
+            agentic_prefer_verifier_patches=not getattr(
+                args,
+                "no_agentic_verifier_patches",
+                False,
+            ),
+            agentic_max_patches_per_attempt=int(
+                getattr(args, "agentic_max_patches_per_attempt", 16)
+            ),
         )
     raise ValueError(f"Unknown strategy: {args.strategy}")
 
@@ -1216,6 +1425,93 @@ Examples:
         "characters in field values from the Stage 1 transcript. MDF markers, "
         "line breaks, whitespace, and punctuation are preserved.",
     )
+    parser.add_argument(
+        "--stage1-agentic",
+        action="store_true",
+        dest="stage1_agentic",
+        help="After each Stage 1 page output, run a bounded verifier-rewriter "
+        "loop before saving the final Stage 1 artifact.",
+    )
+    parser.add_argument(
+        "--stage2-agentic",
+        action="store_true",
+        dest="stage2_agentic",
+        help="After each Stage 2 MDF page output, run a bounded verifier-rewriter "
+        "loop before saving the final MDF artifact.",
+    )
+    parser.add_argument(
+        "--stage1-agentic-patch-verifier",
+        action="store_true",
+        dest="stage1_agentic_patch_verifier",
+        help="For Stage 1 agentic mode, use a patch-only verifier schema that "
+        "can only request exact line-local text replacements.",
+    )
+    parser.add_argument(
+        "--agentic-max-iterations",
+        type=int,
+        default=2,
+        dest="agentic_max_iterations",
+        help="Maximum rewrite attempts for each enabled agentic stage after the "
+        "initial stage output (default: 2).",
+    )
+    parser.add_argument(
+        "--agentic-evaluator-model",
+        default=None,
+        dest="agentic_evaluator_model",
+        help="Model for verifier calls. Defaults to the current stage model.",
+    )
+    parser.add_argument(
+        "--agentic-rewriter-model",
+        default=None,
+        dest="agentic_rewriter_model",
+        help="Model for correction calls. Defaults to the current stage model.",
+    )
+    parser.add_argument(
+        "--agentic-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default="low",
+        dest="agentic_reasoning_effort",
+        help="Reasoning effort for agentic verifier and rewriter calls "
+        "(default: low).",
+    )
+    parser.add_argument(
+        "--agentic-min-retry-confidence",
+        type=float,
+        default=0.55,
+        dest="agentic_min_retry_confidence",
+        help="Minimum verifier confidence required before a retry can rewrite "
+        "(default: 0.55).",
+    )
+    parser.add_argument(
+        "--agentic-max-rewrite-delta-ratio",
+        type=float,
+        default=0.75,
+        dest="agentic_max_rewrite_delta_ratio",
+        help="Reject a correction attempt when normalized text delta is larger "
+        "than this ratio (default: 0.75).",
+    )
+    parser.add_argument(
+        "--agentic-max-patches-per-attempt",
+        type=int,
+        default=16,
+        dest="agentic_max_patches_per_attempt",
+        help="Reject a verifier correction round with more exact patches than "
+        "this count (default: 16).",
+    )
+    parser.add_argument(
+        "--no-agentic-verifier-patches",
+        action="store_true",
+        dest="no_agentic_verifier_patches",
+        help="Disable exact current_text→expected_text verifier patches before "
+        "falling back to the correction model.",
+    )
+    parser.add_argument(
+        "--no-agentic-concrete-retry-gate",
+        action="store_true",
+        dest="no_agentic_concrete_retry_gate",
+        help="Allow retry decisions without localized evidence. Useful only for "
+        "ablation; the default gate is safer.",
+    )
 
     args = parser.parse_args()
     attach_stage_models(args)
@@ -1750,7 +2046,11 @@ def _run_single_entry(args, parser) -> int:
                 ),
                 force=args.overwrite,
             )
-            _write_run_usage(output_dir)
+            _write_run_usage(
+                output_dir,
+                usage_roots=[],
+                parse_rules_roots=[cheatsheet_root],
+            )
         return 0
 
     transcript_cache: dict[str, str] = {}
@@ -2030,7 +2330,10 @@ def _run_single_entry(args, parser) -> int:
                 if runs_stage2_pass2(page_run_stage):
                     if args.strategy == "two_stage":
                         gold_path = _gold_mdf_path_for_entry(
-                            output_dir, stem, getattr(args, "compare_gold", None)
+                            output_dir,
+                            stem,
+                            getattr(args, "compare_gold", None),
+                            entry_dir=entry_path,
                         )
                         mdf_text = page.mdf_text
                         repair_result = None
@@ -2059,6 +2362,24 @@ def _run_single_entry(args, parser) -> int:
                                 f"{repair_result.changed_lines} MDF line(s); "
                                 f"audit → {audit_path.name}"
                             )
+                        if getattr(args, "stage2_agentic", False):
+                            dictionary_languages_path = None
+                            if entry_path is not None:
+                                candidate = entry_path / "dictionary_languages.yaml"
+                                if candidate.is_file():
+                                    dictionary_languages_path = candidate
+                            attempt_metrics = _write_stage2_agentic_attempt_metrics(
+                                agentic_dir=stage2_page_dir / "agentic" / "stage2",
+                                gold_path=gold_path,
+                                page_id=f"{entry_path.name if entry_path else ''}/{stem}"
+                                if entry_path
+                                else stem,
+                                dictionary_languages_path=dictionary_languages_path,
+                            )
+                            if attempt_metrics is not None:
+                                _locked_print(
+                                    f"  → Agentic attempt metrics → {attempt_metrics.name}"
+                                )
                         if gold_path:
                             ok = result.get("gold_compare_ok", False)
                             report = result.get("gold_compare")
@@ -2072,6 +2393,19 @@ def _run_single_entry(args, parser) -> int:
                             )
 
                 if runs_stage1(page_run_stage) and args.strategy == "two_stage":
+                    if getattr(args, "stage1_agentic", False):
+                        gold_flat = _stage1_gold_flat_path_for_entry(entry_path, stem)
+                        attempt_metrics = _write_stage1_agentic_attempt_metrics(
+                            agentic_dir=stage1_page_dir / "agentic" / "stage1",
+                            gold_path=gold_flat,
+                            page_id=f"{entry_path.name if entry_path else ''}/{stem}"
+                            if entry_path
+                            else stem,
+                        )
+                        if attempt_metrics is not None:
+                            _locked_print(
+                                f"  → Stage 1 agentic attempt metrics → {attempt_metrics.name}"
+                            )
                     with cache_lock:
                         if stem not in transcript_cache:
                             if getattr(args, "stage1_mode", "column") == "flat":
@@ -2121,14 +2455,31 @@ def _run_single_entry(args, parser) -> int:
 
     # Aggregate usage across all pages for this run
     if args.strategy == "two_stage" and processed > 0:
-        _write_run_usage(output_dir)
+        usage_roots: list[Path] = []
+        if runs_stage1(args.stage):
+            usage_roots.append(stage1_dir)
+        if runs_stage2_pass2(args.stage):
+            usage_roots.append(stage2_dir)
+        _write_run_usage(
+            output_dir,
+            usage_roots=usage_roots,
+            parse_rules_roots=[cheatsheet_root],
+        )
 
     return 0 if failed == 0 else 1
 
 
-def _write_run_usage(output_dir: Path) -> None:
+def _write_run_usage(
+    output_dir: Path,
+    *,
+    usage_roots: list[Path] | None = None,
+    parse_rules_roots: list[Path] | None = None,
+) -> None:
     """Collect all per-page usage.json files and write a run-level summary."""
     import json
+
+    def is_page_usage_file(path: Path) -> bool:
+        return path.name == f"{path.parent.name}_usage.json"
 
     pages = []
     total_cost = 0.0
@@ -2136,23 +2487,42 @@ def _write_run_usage(output_dir: Path) -> None:
     cost_available = False
     elapsed_available = False
 
-    for usage_file in sorted(output_dir.rglob("*_usage.json")):
-        if usage_file.name == PARSE_RULES_USAGE_FILENAME:
+    roots = usage_roots if usage_roots is not None else [output_dir]
+    seen_usage_files: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
             continue
-        data = json.loads(usage_file.read_text(encoding="utf-8"))
-        page_cost = data.get("total_cost_usd")
-        if page_cost is not None:
-            total_cost += page_cost
-            cost_available = True
-        page_elapsed = data.get("total_elapsed_seconds")
-        if page_elapsed is not None:
-            total_elapsed += page_elapsed
-            elapsed_available = True
-        pages.append({"page": usage_file.parent.name, **data})
+        for usage_file in sorted(root.rglob("*_usage.json")):
+            if usage_file.name in {PARSE_RULES_USAGE_FILENAME, "run_usage.json"}:
+                continue
+            if not is_page_usage_file(usage_file):
+                continue
+            resolved_usage_file = usage_file.resolve()
+            if resolved_usage_file in seen_usage_files:
+                continue
+            seen_usage_files.add(resolved_usage_file)
+            data = json.loads(usage_file.read_text(encoding="utf-8"))
+            page_cost = data.get("total_cost_usd")
+            if page_cost is not None:
+                total_cost += page_cost
+                cost_available = True
+            page_elapsed = data.get("total_elapsed_seconds")
+            if page_elapsed is not None:
+                total_elapsed += page_elapsed
+                elapsed_available = True
+            pages.append({"page": usage_file.parent.name, **data})
 
     field_discovery = None
-    parse_rules_usage_path = output_dir / PARSE_RULES_USAGE_FILENAME
-    if parse_rules_usage_path.is_file():
+    parse_roots = parse_rules_roots if parse_rules_roots is not None else [output_dir]
+    parse_rules_usage_path = next(
+        (
+            root / PARSE_RULES_USAGE_FILENAME
+            for root in parse_roots
+            if (root / PARSE_RULES_USAGE_FILENAME).is_file()
+        ),
+        None,
+    )
+    if parse_rules_usage_path is not None:
         parse_rules_usage = json.loads(parse_rules_usage_path.read_text(encoding="utf-8"))
         field_discovery = parse_rules_usage.get("field_discovery")
         discovery_in_pages = any(page.get("field_discovery") for page in pages)

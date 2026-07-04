@@ -160,6 +160,93 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "Thread pool over litellm.completion calls (no litellm batch API flag).",
     )
     parser.add_argument(
+        "--stage1-agentic",
+        action="store_true",
+        dest="stage1_agentic",
+        help="After each Stage 1 page output, run a bounded verifier-rewriter "
+        "loop before saving the final Stage 1 artifact.",
+    )
+    parser.add_argument(
+        "--stage2-agentic",
+        action="store_true",
+        dest="stage2_agentic",
+        help="After each Stage 2 MDF page output, run a bounded verifier-rewriter "
+        "loop before saving the final MDF artifact.",
+    )
+    parser.add_argument(
+        "--stage1-agentic-patch-verifier",
+        action="store_true",
+        dest="stage1_agentic_patch_verifier",
+        help="For Stage 1 agentic mode, use a patch-only verifier schema that "
+        "can only request exact line-local text replacements.",
+    )
+    parser.add_argument(
+        "--agentic-max-iterations",
+        type=int,
+        default=2,
+        dest="agentic_max_iterations",
+        help="Maximum rewrite attempts for each enabled agentic stage after the "
+        "initial stage output (default: 2).",
+    )
+    parser.add_argument(
+        "--agentic-evaluator-model",
+        default=None,
+        dest="agentic_evaluator_model",
+        help="Model for verifier calls. Defaults to the current stage model.",
+    )
+    parser.add_argument(
+        "--agentic-rewriter-model",
+        default=None,
+        dest="agentic_rewriter_model",
+        help="Model for correction calls. Defaults to the current stage model.",
+    )
+    parser.add_argument(
+        "--agentic-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default="low",
+        dest="agentic_reasoning_effort",
+        help="Reasoning effort for agentic verifier and rewriter calls "
+        "(default: low).",
+    )
+    parser.add_argument(
+        "--agentic-min-retry-confidence",
+        type=float,
+        default=0.55,
+        dest="agentic_min_retry_confidence",
+        help="Minimum verifier confidence required before a retry can rewrite "
+        "(default: 0.55).",
+    )
+    parser.add_argument(
+        "--agentic-max-rewrite-delta-ratio",
+        type=float,
+        default=0.75,
+        dest="agentic_max_rewrite_delta_ratio",
+        help="Reject a correction attempt when normalized text delta is larger "
+        "than this ratio (default: 0.75).",
+    )
+    parser.add_argument(
+        "--agentic-max-patches-per-attempt",
+        type=int,
+        default=16,
+        dest="agentic_max_patches_per_attempt",
+        help="Reject a verifier correction round with more exact patches than "
+        "this count (default: 16).",
+    )
+    parser.add_argument(
+        "--no-agentic-verifier-patches",
+        action="store_true",
+        dest="no_agentic_verifier_patches",
+        help="Disable exact current_text→expected_text verifier patches before "
+        "falling back to the correction model.",
+    )
+    parser.add_argument(
+        "--no-agentic-concrete-retry-gate",
+        action="store_true",
+        dest="no_agentic_concrete_retry_gate",
+        help="Allow retry decisions without localized evidence. Useful only for "
+        "ablation; the default gate is safer.",
+    )
+    parser.add_argument(
         "--prompts-file",
         type=str,
         default=None,
@@ -277,6 +364,45 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.append("--no-stage1-typography")
     if getattr(run_args, "batch_size", 1) != 1:
         argv.extend(["--batch-size", str(run_args.batch_size)])
+    if run_args.stage1_agentic:
+        argv.append("--stage1-agentic")
+    if run_args.stage2_agentic:
+        argv.append("--stage2-agentic")
+    if run_args.stage1_agentic_patch_verifier:
+        argv.append("--stage1-agentic-patch-verifier")
+    if run_args.agentic_max_iterations != 2:
+        argv.extend(["--agentic-max-iterations", str(run_args.agentic_max_iterations)])
+    if run_args.agentic_evaluator_model:
+        argv.extend(["--agentic-evaluator-model", run_args.agentic_evaluator_model])
+    if run_args.agentic_rewriter_model:
+        argv.extend(["--agentic-rewriter-model", run_args.agentic_rewriter_model])
+    if run_args.agentic_reasoning_effort != "low":
+        argv.extend(["--agentic-reasoning", run_args.agentic_reasoning_effort])
+    if run_args.agentic_min_retry_confidence != 0.55:
+        argv.extend(
+            [
+                "--agentic-min-retry-confidence",
+                str(run_args.agentic_min_retry_confidence),
+            ]
+        )
+    if run_args.agentic_max_rewrite_delta_ratio != 0.75:
+        argv.extend(
+            [
+                "--agentic-max-rewrite-delta-ratio",
+                str(run_args.agentic_max_rewrite_delta_ratio),
+            ]
+        )
+    if run_args.agentic_max_patches_per_attempt != 16:
+        argv.extend(
+            [
+                "--agentic-max-patches-per-attempt",
+                str(run_args.agentic_max_patches_per_attempt),
+            ]
+        )
+    if run_args.no_agentic_verifier_patches:
+        argv.append("--no-agentic-verifier-patches")
+    if run_args.no_agentic_concrete_retry_gate:
+        argv.append("--no-agentic-concrete-retry-gate")
     if run_args.prompts_file:
         argv.extend(["--prompts-file", run_args.prompts_file])
     forward_model_argv(argv, run_args)

@@ -54,3 +54,45 @@ def test_repair_skips_short_values_by_default() -> None:
 
     assert result.text == mdf_text
     assert result.decisions[0].reason == "too_few_lexical_chars"
+
+
+def test_repair_skips_ambiguous_approximate_source_spans() -> None:
+    stage1_text = (
+        "Commissaires chargés de surveiller et de prévenir les magistrats. "
+        "Commissaires chargés de surveiller et de prévenir les magistrats."
+    )
+    mdf_text = "\\gn Commisaires chargés de surveiller et de prévenir les magistrats.\n"
+
+    result = repair_mdf_text(mdf_text, stage1_text)
+
+    assert result.text == mdf_text
+    assert result.changed_lines == 0
+    assert result.decisions[0].reason == "ambiguous_source_span"
+
+
+def test_repair_does_not_search_before_cursor_for_later_mdf_lines() -> None:
+    stage1_text = (
+        "Commissaires chargés de surveiller les magistrats. "
+        "Autre entrée complètement différente."
+    )
+    mdf_text = (
+        "\\lx Autre entrée complètement différente\n"
+        "\\gn Commisaires chargés de surveiller les magistrats.\n"
+    )
+
+    result = repair_mdf_text(mdf_text, stage1_text)
+
+    assert result.text == mdf_text
+    assert result.changed_lines == 0
+    assert result.decisions[1].reason == "no_safe_source_span"
+
+
+def test_repair_skips_low_similarity_token_substitution() -> None:
+    stage1_text = "They give a charge concerning it"
+    mdf_text = "\\ge To give a charge concerning it\n"
+
+    result = repair_mdf_text(mdf_text, stage1_text)
+
+    assert result.text == mdf_text
+    assert result.changed_lines == 0
+    assert result.decisions[0].reason == "low_similarity_lexical_replacement"
