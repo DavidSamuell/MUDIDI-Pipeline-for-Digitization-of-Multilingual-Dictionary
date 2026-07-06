@@ -87,8 +87,8 @@ run_gemini_flat() {
 run_gemini_flat "${GEMINI_FLASH_MODEL}" \
     --experiment-name gemini3flash_flat_alpha
 run_gemini_flat "${GEMINI_FLASH_MODEL}" \
-    --no-stage1-typography \
-    --experiment-name gemini3flash_flat_alpha_notypography
+    --stage1-typography \
+    --experiment-name gemini3flash_flat_alpha_typography
 run_gemini_flat "${GEMINI_FLASH_MODEL}" \
     --no-alphabet \
     --experiment-name gemini3flash_flat_noalpha

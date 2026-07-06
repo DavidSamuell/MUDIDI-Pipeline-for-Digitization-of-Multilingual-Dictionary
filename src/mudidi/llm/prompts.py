@@ -29,13 +29,15 @@ def stage_1_neighbor_context_prompt() -> str:
 def stage_1_system_prompt(
     mode: PromptMode = "benchmark",
     *,
-    typography: bool = True,
+    typography: bool = False,
 ) -> str:
     """Stage 1 column-mode system prompt."""
+    del mode
     store = get_prompt_store()
-    if not typography:
-        return store.get("stage_1_column_system_no_typography")
-    return store.get("stage_1_column_system")
+    prompt = store.get("stage_1_column_system")
+    if typography:
+        prompt = "\n\n".join([prompt, store.get("stage_1_typography_instruction")])
+    return prompt
 
 
 def format_stage1_page_context_preamble(page_context: PageContext) -> str:
@@ -53,7 +55,7 @@ def stage_1_flat_system_prompt(
     mode: PromptMode = "benchmark",
     page_context: PageContext | None = None,
     *,
-    typography: bool = True,
+    typography: bool = False,
 ) -> str:
     """Stage 1 flat-mode system prompt.
 
@@ -62,10 +64,11 @@ def stage_1_flat_system_prompt(
     """
     del page_context  # neighbors handled in user preamble, not system prompt
     store = get_prompt_store()
-    if not typography:
-        return store.get("stage_1_system_inference_no_typography")
     prompt_id = prompt_id_for_mode("stage_1_system", mode)
-    return store.get(prompt_id)
+    prompt = store.get(prompt_id)
+    if typography:
+        prompt = "\n\n".join([prompt, store.get("stage_1_typography_instruction")])
+    return prompt
 
 
 def stage_1_user(

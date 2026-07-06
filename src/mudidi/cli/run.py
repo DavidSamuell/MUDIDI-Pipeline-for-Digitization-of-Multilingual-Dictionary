@@ -145,11 +145,11 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "routing hints (for example OpenAI prompt_cache_key).",
     )
     parser.add_argument(
-        "--no-stage1-typography",
+        "--stage1-typography",
         action="store_true",
-        dest="no_stage1_typography",
-        help="Omit bold/italic <b>/<i> markup instructions from Stage 1 prompts "
-        "and structured output schema (plain text transcripts).",
+        dest="stage1_typography",
+        help="Ask Stage 1 to annotate confident bold and italic text with <b>/<i> "
+        "tags. By default Stage 1 emits plain OCR text.",
     )
     parser.add_argument(
         "--batch-size",
@@ -360,8 +360,8 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
     argv.extend(["--media-reference", run_args.media_reference])
     if run_args.prompt_cache_key:
         argv.extend(["--prompt-cache-key", run_args.prompt_cache_key])
-    if run_args.no_stage1_typography:
-        argv.append("--no-stage1-typography")
+    if run_args.stage1_typography:
+        argv.append("--stage1-typography")
     if getattr(run_args, "batch_size", 1) != 1:
         argv.extend(["--batch-size", str(run_args.batch_size)])
     if run_args.stage1_agentic:

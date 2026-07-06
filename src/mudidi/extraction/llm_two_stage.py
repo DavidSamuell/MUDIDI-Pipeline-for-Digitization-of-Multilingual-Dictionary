@@ -449,7 +449,7 @@ class TwoStageLLMExtraction(ExtractionStrategy):
         prompt_cache: str = "auto",
         media_reference: str = "auto",
         prompt_cache_key: Optional[str] = None,
-        stage1_typography: bool = True,
+        stage1_typography: bool = False,
         stage1_agentic: bool = False,
         stage2_agentic: bool = False,
         stage1_agentic_patch_verifier: bool = False,

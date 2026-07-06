@@ -630,7 +630,7 @@ def _build_stage1_manifest(
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "strategy": args.strategy,
         "stage1_mode": getattr(args, "stage1_mode", "column"),
-        "stage1_typography": not getattr(args, "no_stage1_typography", False),
+        "stage1_typography": bool(getattr(args, "stage1_typography", False)),
         "flat_spec_version": FLAT_SPEC_VERSION,
         "git_sha": _git_short_sha(),
         "model": args.stage_models.stage_1,
@@ -784,7 +784,7 @@ def _build_strategy(
             prompt_cache=getattr(args, "prompt_cache", "auto"),
             media_reference=getattr(args, "media_reference", "auto"),
             prompt_cache_key=getattr(args, "prompt_cache_key", None),
-            stage1_typography=not getattr(args, "no_stage1_typography", False),
+            stage1_typography=bool(getattr(args, "stage1_typography", False)),
             stage1_agentic=bool(getattr(args, "stage1_agentic", False)),
             stage2_agentic=bool(getattr(args, "stage2_agentic", False)),
             stage1_agentic_patch_verifier=bool(
@@ -1161,11 +1161,11 @@ Examples:
         "Optional — leave unset to use the default prompt.",
     )
     parser.add_argument(
-        "--no-stage1-typography",
+        "--stage1-typography",
         action="store_true",
-        dest="no_stage1_typography",
-        help="Omit bold/italic <b>/<i> markup instructions from Stage 1 prompts "
-        "and structured output schema (plain text transcripts).",
+        dest="stage1_typography",
+        help="Ask Stage 1 to annotate confident bold and italic text with <b>/<i> "
+        "tags. By default Stage 1 emits plain OCR text.",
     )
     parser.add_argument(
         "--batch-size",

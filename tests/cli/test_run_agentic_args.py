@@ -17,6 +17,7 @@ def test_run_forwards_agentic_flags(monkeypatch, tmp_path: Path) -> None:
             "--output-dir",
             str(tmp_path / "out"),
             "--stage1-agentic",
+            "--stage1-typography",
             "--stage2-agentic",
             "--stage1-agentic-patch-verifier",
             "--agentic-max-iterations",
@@ -50,6 +51,7 @@ def test_run_forwards_agentic_flags(monkeypatch, tmp_path: Path) -> None:
     assert run_cli.run_from_args(args, []) == 0
 
     forwarded = captured["argv"]
+    assert "--stage1-typography" in forwarded
     assert "--stage1-agentic" in forwarded
     assert "--stage2-agentic" in forwarded
     assert "--stage1-agentic-patch-verifier" in forwarded
