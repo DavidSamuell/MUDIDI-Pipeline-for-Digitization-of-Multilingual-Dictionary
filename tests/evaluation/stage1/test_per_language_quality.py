@@ -241,7 +241,10 @@ def test_per_language_script_summary_omits_total_columns_but_detailed_keeps_them
 
     assert not any(col.startswith("total_") for col in summary_cols)
     assert "language" in summary_cols
-    assert "total_graphemes_gold" in detailed_cols
+    assert "gold_word_count" in summary_cols
+    assert "gold_grapheme_count" in summary_cols
+    assert "gold_word_count" in detailed_cols
+    assert "gold_grapheme_count" in detailed_cols
     assert "language" in detailed_cols
     assert "page" in detailed_cols
     assert "page_id" not in detailed_cols
