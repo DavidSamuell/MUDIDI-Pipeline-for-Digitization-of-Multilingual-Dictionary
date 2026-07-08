@@ -209,6 +209,22 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "(default: low).",
     )
     parser.add_argument(
+        "--agentic-evaluator-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default=None,
+        dest="agentic_evaluator_reasoning_effort",
+        help="Reasoning effort for agentic verifier/evaluator calls. Defaults "
+        "to --agentic-reasoning when omitted.",
+    )
+    parser.add_argument(
+        "--agentic-rewriter-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default=None,
+        dest="agentic_rewriter_reasoning_effort",
+        help="Reasoning effort for agentic correction/rewrite calls. Defaults "
+        "to --agentic-reasoning when omitted.",
+    )
+    parser.add_argument(
         "--agentic-min-retry-confidence",
         type=float,
         default=0.55,
@@ -222,7 +238,15 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         default=0.75,
         dest="agentic_max_rewrite_delta_ratio",
         help="Reject a correction attempt when normalized text delta is larger "
-        "than this ratio (default: 0.75).",
+        "than this ratio (default: 0.75). Ignored when "
+        "--no-agentic-max-rewrite-delta-gate is set.",
+    )
+    parser.add_argument(
+        "--no-agentic-max-rewrite-delta-gate",
+        action="store_true",
+        dest="no_agentic_max_rewrite_delta_gate",
+        help="Disable the destructive-rewrite guard so large correction attempts "
+        "are allowed through (sets max rewrite delta ratio to unlimited).",
     )
     parser.add_argument(
         "--agentic-max-patches-per-attempt",
@@ -245,6 +269,14 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         dest="no_agentic_concrete_retry_gate",
         help="Allow retry decisions without localized evidence. Useful only for "
         "ablation; the default gate is safer.",
+    )
+    parser.add_argument(
+        "--agentic-catastrophic-recovery",
+        action="store_true",
+        dest="agentic_catastrophic_recovery",
+        help="When Stage 1 agentic verifier detects wrong-page or whole-page "
+        "corruption, discard the transcript and re-transcribe the entire page "
+        "from the image (decision=recover).",
     )
     parser.add_argument(
         "--prompts-file",
@@ -378,6 +410,20 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.extend(["--agentic-rewriter-model", run_args.agentic_rewriter_model])
     if run_args.agentic_reasoning_effort != "low":
         argv.extend(["--agentic-reasoning", run_args.agentic_reasoning_effort])
+    if run_args.agentic_evaluator_reasoning_effort is not None:
+        argv.extend(
+            [
+                "--agentic-evaluator-reasoning",
+                run_args.agentic_evaluator_reasoning_effort,
+            ]
+        )
+    if run_args.agentic_rewriter_reasoning_effort is not None:
+        argv.extend(
+            [
+                "--agentic-rewriter-reasoning",
+                run_args.agentic_rewriter_reasoning_effort,
+            ]
+        )
     if run_args.agentic_min_retry_confidence != 0.55:
         argv.extend(
             [
@@ -385,7 +431,10 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
                 str(run_args.agentic_min_retry_confidence),
             ]
         )
-    if run_args.agentic_max_rewrite_delta_ratio != 0.75:
+    if (
+        not run_args.no_agentic_max_rewrite_delta_gate
+        and run_args.agentic_max_rewrite_delta_ratio != 0.75
+    ):
         argv.extend(
             [
                 "--agentic-max-rewrite-delta-ratio",
@@ -401,8 +450,12 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         )
     if run_args.no_agentic_verifier_patches:
         argv.append("--no-agentic-verifier-patches")
+    if run_args.no_agentic_max_rewrite_delta_gate:
+        argv.append("--no-agentic-max-rewrite-delta-gate")
     if run_args.no_agentic_concrete_retry_gate:
         argv.append("--no-agentic-concrete-retry-gate")
+    if run_args.agentic_catastrophic_recovery:
+        argv.append("--agentic-catastrophic-recovery")
     if run_args.prompts_file:
         argv.extend(["--prompts-file", run_args.prompts_file])
     forward_model_argv(argv, run_args)

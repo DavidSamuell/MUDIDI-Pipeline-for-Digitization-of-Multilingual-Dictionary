@@ -28,14 +28,20 @@ def test_run_forwards_agentic_flags(monkeypatch, tmp_path: Path) -> None:
             "provider/rewrite",
             "--agentic-reasoning",
             "medium",
+            "--agentic-evaluator-reasoning",
+            "high",
+            "--agentic-rewriter-reasoning",
+            "low",
             "--agentic-min-retry-confidence",
             "0.7",
             "--agentic-max-rewrite-delta-ratio",
             "0.5",
             "--agentic-max-patches-per-attempt",
             "7",
+            "--no-agentic-max-rewrite-delta-gate",
             "--no-agentic-verifier-patches",
             "--no-agentic-concrete-retry-gate",
+            "--agentic-catastrophic-recovery",
         ]
     )
 
@@ -59,8 +65,12 @@ def test_run_forwards_agentic_flags(monkeypatch, tmp_path: Path) -> None:
     assert forwarded[forwarded.index("--agentic-evaluator-model") + 1] == "provider/eval"
     assert forwarded[forwarded.index("--agentic-rewriter-model") + 1] == "provider/rewrite"
     assert forwarded[forwarded.index("--agentic-reasoning") + 1] == "medium"
+    assert forwarded[forwarded.index("--agentic-evaluator-reasoning") + 1] == "high"
+    assert forwarded[forwarded.index("--agentic-rewriter-reasoning") + 1] == "low"
     assert forwarded[forwarded.index("--agentic-min-retry-confidence") + 1] == "0.7"
-    assert forwarded[forwarded.index("--agentic-max-rewrite-delta-ratio") + 1] == "0.5"
+    assert "--agentic-max-rewrite-delta-ratio" not in forwarded
     assert forwarded[forwarded.index("--agentic-max-patches-per-attempt") + 1] == "7"
+    assert "--no-agentic-max-rewrite-delta-gate" in forwarded
     assert "--no-agentic-verifier-patches" in forwarded
     assert "--no-agentic-concrete-retry-gate" in forwarded
+    assert "--agentic-catastrophic-recovery" in forwarded

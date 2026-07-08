@@ -17,7 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-AgenticDecision = Literal["accept", "retry", "reject"]
+AgenticDecision = Literal["accept", "retry", "reject", "recover"]
 AgenticSeverity = Literal["low", "medium", "high"]
 AgenticStopReason = Literal[
     "accepted",
@@ -29,7 +29,30 @@ AgenticStopReason = Literal[
     "vague_retry",
     "destructive_rewrite",
     "patch_quality_rejected",
+    "catastrophic_recovery",
 ]
+
+CATASTROPHIC_ISSUE_TYPES = frozenset(
+    {
+        "wrong_page",
+        "page_mismatch",
+        "wrong_page_content",
+        "hallucinated_page",
+        "catastrophic_mismatch",
+        "wrong_content",
+    }
+)
+
+WHOLE_PAGE_RETRY_PHRASES = (
+    "complete pass",
+    "full page",
+    "entire page",
+    "from scratch",
+    "re-transcribe",
+    "retranscribe",
+    "whole page",
+    "fresh transcription",
+)
 
 
 class AgenticIssue(BaseModel):
@@ -132,6 +155,7 @@ class AgenticLoopConfig(BaseModel):
     max_rewrite_delta_ratio: float | None = Field(default=0.75, ge=0.0, le=1.0)
     prefer_verifier_patches: bool = True
     max_patches_per_attempt: int | None = Field(default=16, ge=1)
+    catastrophic_recovery_enabled: bool = False
 
 
 class AgenticAttempt(BaseModel):
@@ -169,6 +193,64 @@ def _normalized_for_change_check(text: str) -> str:
 def _issue_signature(decision: AgenticVerifierDecision) -> tuple[str, ...]:
     """Return stable issue types used to catch repeated verifier loops."""
     return tuple(issue.type for issue in decision.issues if issue.type)
+
+
+def _has_catastrophic_issue(decision: AgenticVerifierDecision) -> bool:
+    """Whether verifier findings indicate a whole-page failure."""
+    for issue in decision.issues:
+        issue_type = issue.type.casefold()
+        if issue_type in CATASTROPHIC_ISSUE_TYPES:
+            return True
+        evidence = issue.evidence.casefold()
+        if any(
+            phrase in evidence
+            for phrase in (
+                "wrong page",
+                "different page",
+                "page mismatch",
+                "entirely different page",
+                "not this page",
+            )
+        ):
+            return True
+    return False
+
+
+def _is_whole_page_retry(decision: AgenticVerifierDecision) -> bool:
+    """Whether a retry asks for broad re-transcription instead of localized edits."""
+    if decision.decision != "retry":
+        return False
+    instruction = decision.retry_instruction.casefold()
+    if any(phrase in instruction for phrase in WHOLE_PAGE_RETRY_PHRASES):
+        return True
+    if not decision.issues:
+        return False
+    vague_issues = [
+        issue
+        for issue in decision.issues
+        if not issue.current_text.strip() and not issue.expected_text.strip()
+    ]
+    return len(vague_issues) >= max(2, len(decision.issues) // 2 + 1)
+
+
+def normalize_catastrophic_decision(
+    decision: AgenticVerifierDecision,
+    config: AgenticLoopConfig,
+) -> AgenticVerifierDecision:
+    """Promote reject/vague-retry to recover when catastrophic recovery is enabled."""
+    if not config.catastrophic_recovery_enabled:
+        return decision
+    if decision.decision == "recover":
+        return decision
+    if decision.decision == "reject" and _has_catastrophic_issue(decision):
+        return decision.model_copy(update={"decision": "recover"})
+    if decision.decision != "retry":
+        return decision
+    if _has_catastrophic_issue(decision):
+        return decision.model_copy(update={"decision": "recover"})
+    if not _has_concrete_retry_issue(decision) and _is_whole_page_retry(decision):
+        return decision.model_copy(update={"decision": "recover"})
+    return decision
 
 
 def _has_concrete_retry_issue(decision: AgenticVerifierDecision) -> bool:
@@ -420,7 +502,8 @@ def run_bounded_verifier_loop(
     _write_text(artifact_dir / f"attempt_0_output{output_suffix}", current)
 
     for attempt in range(config.max_iterations + 1):
-        decision, verifier_usage = _split_verify_result(verify(current, attempt))
+        raw_decision, verifier_usage = _split_verify_result(verify(current, attempt))
+        decision = normalize_catastrophic_decision(raw_decision, config)
         attempt_record = AgenticAttempt(
             attempt=attempt,
             decision=decision,
@@ -428,6 +511,11 @@ def run_bounded_verifier_loop(
         )
         attempts.append(attempt_record)
         _write_json(artifact_dir / f"attempt_{attempt}_verifier.json", decision)
+        if decision is not raw_decision:
+            _write_json(
+                artifact_dir / f"attempt_{attempt}_verifier_raw.json",
+                raw_decision,
+            )
         if verifier_usage:
             _write_json_data(
                 artifact_dir / f"attempt_{attempt}_verifier_usage.json",
@@ -454,7 +542,9 @@ def run_bounded_verifier_loop(
                 artifact_dir=artifact_dir,
             )
 
-        if decision.confidence < config.min_retry_confidence:
+        is_catastrophic = decision.decision == "recover"
+
+        if not is_catastrophic and decision.confidence < config.min_retry_confidence:
             return _finish(
                 stage=stage,
                 output=current,
@@ -464,7 +554,11 @@ def run_bounded_verifier_loop(
                 artifact_dir=artifact_dir,
             )
 
-        if config.require_concrete_retry_issue and not _has_concrete_retry_issue(decision):
+        if (
+            not is_catastrophic
+            and config.require_concrete_retry_issue
+            and not _has_concrete_retry_issue(decision)
+        ):
             return _finish(
                 stage=stage,
                 output=current,
@@ -474,7 +568,7 @@ def run_bounded_verifier_loop(
                 artifact_dir=artifact_dir,
             )
 
-        if config.max_patches_per_attempt is not None:
+        if not is_catastrophic and config.max_patches_per_attempt is not None:
             patch_count = _patch_issue_count(decision)
             if patch_count > config.max_patches_per_attempt:
                 return _finish(
@@ -515,7 +609,7 @@ def run_bounded_verifier_loop(
 
         next_attempt = attempt + 1
         rewritten = None
-        if config.prefer_verifier_patches:
+        if not is_catastrophic and config.prefer_verifier_patches:
             rewritten = _apply_verifier_patches(current, decision)
         if rewritten is None:
             rewritten, rewrite_usage = _split_rewrite_result(
@@ -528,16 +622,19 @@ def run_bounded_verifier_loop(
                     rewrite_usage,
                 )
         if _normalized_for_change_check(rewritten) == _normalized_for_change_check(current):
+            stop_reason: AgenticStopReason = (
+                "catastrophic_recovery" if is_catastrophic else "unchanged"
+            )
             return _finish(
                 stage=stage,
                 output=current,
-                stop_reason="unchanged",
+                stop_reason=stop_reason,
                 rewrite_count=rewrite_count,
                 attempts=attempts,
                 artifact_dir=artifact_dir,
             )
 
-        if config.max_rewrite_delta_ratio is not None:
+        if not is_catastrophic and config.max_rewrite_delta_ratio is not None:
             delta_ratio = _rewrite_delta_ratio(current, rewritten)
             if delta_ratio > config.max_rewrite_delta_ratio:
                 _write_text(
@@ -556,6 +653,11 @@ def run_bounded_verifier_loop(
         rewrite_count += 1
         current = rewritten
         _write_text(artifact_dir / f"attempt_{next_attempt}_output{output_suffix}", current)
+        if is_catastrophic:
+            _write_text(
+                artifact_dir / f"attempt_{next_attempt}_catastrophic{output_suffix}",
+                current,
+            )
 
     return _finish(
         stage=stage,

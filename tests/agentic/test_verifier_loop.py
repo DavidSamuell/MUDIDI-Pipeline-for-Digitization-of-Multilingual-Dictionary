@@ -6,6 +6,7 @@ from mudidi.agentic.verifier_loop import (
     AgenticPatchVerifierDecision,
     AgenticTextPatch,
     AgenticVerifierDecision,
+    normalize_catastrophic_decision,
     patch_decision_to_verifier_decision,
     run_bounded_verifier_loop,
 )
@@ -578,3 +579,221 @@ def test_loop_keeps_last_rewrite_when_budget_is_exhausted(tmp_path: Path) -> Non
     assert result.stop_reason == "max_iterations"
     assert result.rewrite_count == 1
     assert (tmp_path / "attempt_1_output.mdf.txt").read_text() == "rewrite 1"
+
+
+def test_normalize_promotes_wrong_page_reject_to_recover() -> None:
+    raw = AgenticVerifierDecision(
+        decision="reject",
+        confidence=1.0,
+        issues=[
+            AgenticIssue(
+                type="wrong_page",
+                severity="high",
+                evidence="Transcript starts with bwo but image starts with bwi.",
+            )
+        ],
+    )
+    promoted = normalize_catastrophic_decision(
+        raw,
+        AgenticLoopConfig(catastrophic_recovery_enabled=True),
+    )
+    assert promoted.decision == "recover"
+
+
+def test_loop_catastrophic_recovery_rewrites_whole_page(tmp_path: Path) -> None:
+    verifier_outputs = [
+        AgenticVerifierDecision(
+            decision="reject",
+            confidence=1.0,
+            issues=[
+                AgenticIssue(
+                    type="wrong_page",
+                    severity="high",
+                    evidence="Transcript is from a different dictionary page.",
+                )
+            ],
+        ),
+        AgenticVerifierDecision(decision="accept", confidence=0.95),
+    ]
+
+    def verify(output: str, attempt: int) -> AgenticVerifierDecision:
+        return verifier_outputs[attempt]
+
+    def rewrite(output: str, decision: AgenticVerifierDecision, attempt: int) -> str:
+        assert decision.decision == "recover"
+        return "fresh page transcription"
+
+    result = run_bounded_verifier_loop(
+        stage="stage1",
+        initial_output="wrong page transcript",
+        artifact_dir=tmp_path,
+        output_suffix=".txt",
+        verify=verify,
+        rewrite=rewrite,
+        config=AgenticLoopConfig(
+            max_iterations=2,
+            catastrophic_recovery_enabled=True,
+            max_rewrite_delta_ratio=0.1,
+        ),
+    )
+
+    assert result.output == "fresh page transcription"
+    assert result.stop_reason == "accepted"
+    assert result.rewrite_count == 1
+    assert (tmp_path / "attempt_0_verifier_raw.json").is_file()
+    assert (tmp_path / "attempt_1_catastrophic.txt").is_file()
+
+
+def test_loop_catastrophic_recovery_bypasses_low_confidence_gate(tmp_path: Path) -> None:
+    verifier_outputs = [
+        AgenticVerifierDecision(
+            decision="recover",
+            confidence=0.2,
+            issues=[
+                AgenticIssue(
+                    type="wrong_page",
+                    severity="high",
+                    evidence="Transcript is from a different dictionary page.",
+                )
+            ],
+        ),
+        AgenticVerifierDecision(decision="accept", confidence=0.95),
+    ]
+
+    def verify(output: str, attempt: int) -> AgenticVerifierDecision:
+        return verifier_outputs[attempt]
+
+    def rewrite(output: str, decision: AgenticVerifierDecision, attempt: int) -> str:
+        assert decision.decision == "recover"
+        return "fresh page transcription"
+
+    result = run_bounded_verifier_loop(
+        stage="stage1",
+        initial_output="wrong page transcript",
+        artifact_dir=tmp_path,
+        output_suffix=".txt",
+        verify=verify,
+        rewrite=rewrite,
+        config=AgenticLoopConfig(
+            max_iterations=2,
+            catastrophic_recovery_enabled=True,
+            min_retry_confidence=0.8,
+        ),
+    )
+
+    assert result.output == "fresh page transcription"
+    assert result.stop_reason == "accepted"
+    assert result.rewrite_count == 1
+
+
+def test_loop_catastrophic_recovery_bypasses_vague_retry(tmp_path: Path) -> None:
+    verifier_outputs = [
+        AgenticVerifierDecision(
+            decision="retry",
+            confidence=0.7,
+            issues=[
+                AgenticIssue(
+                    type="missing_text",
+                    severity="medium",
+                    line_index=17,
+                    suggested_fix="Correct entry headword to limal and restore all missing examples.",
+                )
+            ],
+            retry_instruction="Perform a complete pass to restore all missing text.",
+        ),
+        AgenticVerifierDecision(decision="accept", confidence=0.95),
+    ]
+
+    def verify(output: str, attempt: int) -> AgenticVerifierDecision:
+        return verifier_outputs[attempt]
+
+    def rewrite(output: str, decision: AgenticVerifierDecision, attempt: int) -> str:
+        assert decision.decision == "recover"
+        return "retranscribed page"
+
+    result = run_bounded_verifier_loop(
+        stage="stage1",
+        initial_output="bad transcript",
+        artifact_dir=tmp_path,
+        output_suffix=".txt",
+        verify=verify,
+        rewrite=rewrite,
+        config=AgenticLoopConfig(
+            max_iterations=2,
+            catastrophic_recovery_enabled=True,
+            require_concrete_retry_issue=True,
+        ),
+    )
+
+    assert result.output == "retranscribed page"
+    assert result.stop_reason == "accepted"
+    assert result.rewrite_count == 1
+
+
+def test_whole_page_retry_promotes_to_recover_from_retry_instruction() -> None:
+    decision = AgenticVerifierDecision(
+        decision="retry",
+        confidence=0.7,
+        issues=[
+            AgenticIssue(
+                type="missing_text",
+                severity="medium",
+                suggested_fix="Restore the full page from the image.",
+            ),
+            AgenticIssue(
+                type="missing_text",
+                severity="medium",
+                suggested_fix="The entire page needs a fresh transcription.",
+            ),
+        ],
+        retry_instruction="Perform a complete fresh transcription of the full page.",
+    )
+
+    promoted = normalize_catastrophic_decision(
+        decision,
+        AgenticLoopConfig(catastrophic_recovery_enabled=True),
+    )
+
+    assert promoted.decision == "recover"
+
+
+def test_loop_allows_large_rewrite_when_delta_gate_disabled(tmp_path: Path) -> None:
+    verifier_outputs = [
+        AgenticVerifierDecision(
+            decision="retry",
+            confidence=0.9,
+            issues=[
+                AgenticIssue(
+                    type="localized_character_error",
+                    severity="medium",
+                    evidence="line 1 has one wrong character",
+                    suggested_fix="change abc to abd",
+                )
+            ],
+        ),
+        AgenticVerifierDecision(decision="accept", confidence=0.95),
+    ]
+
+    def verify(output: str, attempt: int) -> AgenticVerifierDecision:
+        return verifier_outputs[attempt]
+
+    def rewrite(output: str, decision: AgenticVerifierDecision, attempt: int) -> str:
+        return "completely unrelated regenerated page"
+
+    result = run_bounded_verifier_loop(
+        stage="stage1",
+        initial_output="abc\nsecond line\nthird line",
+        artifact_dir=tmp_path,
+        output_suffix=".txt",
+        verify=verify,
+        rewrite=rewrite,
+        config=AgenticLoopConfig(
+            max_iterations=2,
+            max_rewrite_delta_ratio=None,
+            prefer_verifier_patches=False,
+        ),
+    )
+
+    assert result.output == "completely unrelated regenerated page"
+    assert result.stop_reason == "accepted"
+    assert result.rewrite_count == 1

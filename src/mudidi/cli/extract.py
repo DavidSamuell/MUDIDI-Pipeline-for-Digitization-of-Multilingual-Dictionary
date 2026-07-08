@@ -796,6 +796,16 @@ def _build_strategy(
             agentic_evaluator_model=getattr(args, "agentic_evaluator_model", None),
             agentic_rewriter_model=getattr(args, "agentic_rewriter_model", None),
             agentic_reasoning_effort=getattr(args, "agentic_reasoning_effort", "low"),
+            agentic_evaluator_reasoning_effort=getattr(
+                args,
+                "agentic_evaluator_reasoning_effort",
+                None,
+            ),
+            agentic_rewriter_reasoning_effort=getattr(
+                args,
+                "agentic_rewriter_reasoning_effort",
+                None,
+            ),
             agentic_min_retry_confidence=float(
                 getattr(args, "agentic_min_retry_confidence", 0.55)
             ),
@@ -804,8 +814,10 @@ def _build_strategy(
                 "no_agentic_concrete_retry_gate",
                 False,
             ),
-            agentic_max_rewrite_delta_ratio=float(
-                getattr(args, "agentic_max_rewrite_delta_ratio", 0.75)
+            agentic_max_rewrite_delta_ratio=(
+                None
+                if getattr(args, "no_agentic_max_rewrite_delta_gate", False)
+                else float(getattr(args, "agentic_max_rewrite_delta_ratio", 0.75))
             ),
             agentic_prefer_verifier_patches=not getattr(
                 args,
@@ -814,6 +826,9 @@ def _build_strategy(
             ),
             agentic_max_patches_per_attempt=int(
                 getattr(args, "agentic_max_patches_per_attempt", 16)
+            ),
+            agentic_catastrophic_recovery=bool(
+                getattr(args, "agentic_catastrophic_recovery", False)
             ),
         )
     raise ValueError(f"Unknown strategy: {args.strategy}")
@@ -1280,9 +1295,9 @@ Examples:
     parser.add_argument(
         "--stage1-mode",
         choices=["column", "flat"],
-        default="column",
+        default="flat",
         help="Stage-1 *write* format for two_stage when running stage 1 or all: "
-        "column TSV (default) or flat text (eval-flat).",
+        "flat text (default) or column TSV (deprecated).",
     )
     parser.add_argument(
         "--prompts-file",
@@ -1475,6 +1490,22 @@ Examples:
         "(default: low).",
     )
     parser.add_argument(
+        "--agentic-evaluator-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default=None,
+        dest="agentic_evaluator_reasoning_effort",
+        help="Reasoning effort for agentic verifier/evaluator calls. Defaults "
+        "to --agentic-reasoning when omitted.",
+    )
+    parser.add_argument(
+        "--agentic-rewriter-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default=None,
+        dest="agentic_rewriter_reasoning_effort",
+        help="Reasoning effort for agentic correction/rewrite calls. Defaults "
+        "to --agentic-reasoning when omitted.",
+    )
+    parser.add_argument(
         "--agentic-min-retry-confidence",
         type=float,
         default=0.55,
@@ -1488,7 +1519,15 @@ Examples:
         default=0.75,
         dest="agentic_max_rewrite_delta_ratio",
         help="Reject a correction attempt when normalized text delta is larger "
-        "than this ratio (default: 0.75).",
+        "than this ratio (default: 0.75). Ignored when "
+        "--no-agentic-max-rewrite-delta-gate is set.",
+    )
+    parser.add_argument(
+        "--no-agentic-max-rewrite-delta-gate",
+        action="store_true",
+        dest="no_agentic_max_rewrite_delta_gate",
+        help="Disable the destructive-rewrite guard so large correction attempts "
+        "are allowed through (sets max rewrite delta ratio to unlimited).",
     )
     parser.add_argument(
         "--agentic-max-patches-per-attempt",
@@ -1511,6 +1550,14 @@ Examples:
         dest="no_agentic_concrete_retry_gate",
         help="Allow retry decisions without localized evidence. Useful only for "
         "ablation; the default gate is safer.",
+    )
+    parser.add_argument(
+        "--agentic-catastrophic-recovery",
+        action="store_true",
+        dest="agentic_catastrophic_recovery",
+        help="When Stage 1 agentic verifier detects wrong-page or whole-page "
+        "corruption, discard the transcript and re-transcribe the entire page "
+        "from the image (decision=recover).",
     )
 
     args = parser.parse_args()
