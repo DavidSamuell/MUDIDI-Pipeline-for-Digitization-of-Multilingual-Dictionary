@@ -1,5 +1,7 @@
 # MUDIDI
 
+**[Read the MUDIDI documentation](https://davidsamuell.github.io/MUDIDI/)**
+
 MUDIDI digitizes scanned multilingual dictionaries with language models. It first creates a faithful page transcription and then converts that transcription into [SIL Toolbox MDF](https://software.sil.org/toolbox/) lexicon records.
 
 ```text
@@ -68,19 +70,16 @@ uv run mudidi run --config examples/configs/production/directory-inference.yaml
 
 ## Documentation
 
-The MkDocs site separates two primary workflows:
+The public documentation is available at
+**[davidsamuell.github.io/MUDIDI](https://davidsamuell.github.io/MUDIDI/)** and
+separates two primary workflows:
 
 - **Production Inference** — digitize your own PDF or page directory.
 - **Benchmarking & Evaluation** — reproduce experiments against the MUDIDI dataset.
 
-Build or serve it locally:
-
-```bash
-uv sync --extra docs
-uv run mkdocs serve
-```
-
-Source documentation is under [`docs/`](docs/). Canonical configurations are under [`examples/configs/`](examples/configs/).
+The site is rebuilt and deployed automatically from `main` with GitHub Pages.
+Documentation sources are under [`docs/`](docs/), and canonical configurations
+are under [`examples/configs/`](examples/configs/).
 
 ## Dataset and paper
 
