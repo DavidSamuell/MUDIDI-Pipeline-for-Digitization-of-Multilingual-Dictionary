@@ -18,4 +18,3 @@ uv run mudidi run \
 ```
 
 Stage 1 output appears under `stage-1/`; MDF output appears under `stage-2/`.
-

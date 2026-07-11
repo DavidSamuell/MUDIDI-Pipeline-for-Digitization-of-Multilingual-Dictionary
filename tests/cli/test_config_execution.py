@@ -103,4 +103,3 @@ def test_dry_run_does_not_invoke_extraction(
     output = capsys.readouterr().out
     assert '"kind": "inference"' in output
     assert '"stage1_mode": "flat"' in output
-

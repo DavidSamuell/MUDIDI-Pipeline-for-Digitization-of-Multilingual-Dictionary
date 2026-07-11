@@ -18,4 +18,3 @@ Configuration rules:
 - API keys remain in `.env`.
 
 See the generated [configuration schema](../reference/config.md).
-

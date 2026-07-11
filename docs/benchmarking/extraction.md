@@ -13,4 +13,3 @@ uv run mudidi benchmark run --config examples/configs/benchmark/stage2-e2e-bench
 ```
 
 Dataset-root sweeps and single-entry benchmark runs are both supported. Shell scripts remain useful for experiment matrices and copying fixed Stage 1 prediction trees.
-

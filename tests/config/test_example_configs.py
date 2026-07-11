@@ -27,4 +27,3 @@ def test_canonical_example_configs_exist() -> None:
 def test_canonical_example_config_validates(path: Path) -> None:
     config = load_yaml_config(path)
     assert config.version == 1
-

@@ -9,4 +9,3 @@ uv run mudidi run --config examples/configs/production/pdf-inference.yaml
 ```yaml
 --8<-- "examples/configs/production/pdf-inference.yaml"
 ```
-

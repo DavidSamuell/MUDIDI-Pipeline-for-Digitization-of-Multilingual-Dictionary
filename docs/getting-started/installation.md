@@ -19,4 +19,3 @@ GEMINI_API_KEY=replace-me
 ```
 
 Credentials stay in `.env`; YAML run configurations must not contain secrets.
-

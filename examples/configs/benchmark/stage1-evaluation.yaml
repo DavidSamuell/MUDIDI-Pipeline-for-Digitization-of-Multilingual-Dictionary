@@ -12,4 +12,3 @@ evaluation:
   all_experiments: true
   workers: 1
   character_alignment: quick_match
-

@@ -45,4 +45,3 @@ def test_unknown_run_option_fails_immediately() -> None:
 
     with pytest.raises(SystemExit):
         parser.parse_args(["run", "--unknown-option"])
-

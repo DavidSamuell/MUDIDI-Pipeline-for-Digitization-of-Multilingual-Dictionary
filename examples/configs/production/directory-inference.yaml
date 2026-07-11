@@ -19,4 +19,3 @@ models:
   stage2_pass1: gemini/gemini-3.1-pro-preview
   stage2_pass2: gemini/gemini-3.1-pro-preview
   stage2_reasoning: high
-

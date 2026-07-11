@@ -13,4 +13,3 @@ evaluation and language-script reports
 ```
 
 Stage 1 preserves visible text. Stage 2 structures that transcript without treating the page image as an alternate text source.
-

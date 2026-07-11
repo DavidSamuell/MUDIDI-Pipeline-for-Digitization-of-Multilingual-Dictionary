@@ -14,4 +14,3 @@ output/
 ```
 
 Existing stage-level `run_config.json` manifests retain their resume semantics. `resolved_config.json` records the redacted configuration used to start the invocation.
-

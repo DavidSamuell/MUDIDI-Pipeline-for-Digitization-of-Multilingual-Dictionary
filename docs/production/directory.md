@@ -11,4 +11,3 @@ The canonical configuration is included directly below:
 ```yaml
 --8<-- "examples/configs/production/directory-inference.yaml"
 ```
-

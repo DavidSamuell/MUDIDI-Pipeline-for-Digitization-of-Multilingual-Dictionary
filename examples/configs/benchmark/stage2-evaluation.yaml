@@ -12,4 +12,3 @@ evaluation:
   all_experiments: true
   record_threshold: 0.6
   line_threshold: 0.7
-

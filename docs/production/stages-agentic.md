@@ -15,4 +15,3 @@ agentic:
 ```
 
 Stage 1 is grounded in the page image. Stage 2 is grounded in the Stage 1 transcript and parse rules. Catastrophic whole-page recovery applies only to Stage 1.
-
