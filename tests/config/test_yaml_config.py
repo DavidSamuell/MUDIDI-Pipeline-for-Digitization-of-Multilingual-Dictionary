@@ -194,3 +194,39 @@ def test_path_validation_checks_page_specs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="input.dictionary_pages"):
         validate_config_paths(config)
+
+
+def test_path_validation_requires_page_selection_for_pdf(tmp_path: Path) -> None:
+    pdf = tmp_path / "dictionary.pdf"
+    pdf.write_bytes(b"%PDF-placeholder")
+    config = InferenceConfig.model_validate(
+        {
+            "kind": "inference",
+            "input": {"pages": pdf},
+            "output": {"directory": tmp_path / "output"},
+        }
+    )
+
+    with pytest.raises(ValueError, match="dictionary_pages is required"):
+        validate_config_paths(config)
+
+
+def test_evaluation_rejects_mixed_single_file_and_batch_inputs(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.yaml"
+    path.write_text(
+        """
+version: 1
+kind: stage1_evaluation
+input:
+  predicted: prediction.txt
+  gold: gold.txt
+  dataset_dir: dataset
+  pred_root: predictions
+output:
+  directory: reports
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="either predicted.gold or dataset_dir.pred_root"):
+        load_yaml_config(path)

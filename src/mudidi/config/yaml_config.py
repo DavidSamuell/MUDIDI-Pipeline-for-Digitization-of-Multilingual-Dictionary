@@ -282,10 +282,14 @@ class _EvaluationConfig(_StrictModel):
     def require_input_pair_or_batch(self) -> _EvaluationConfig:
         has_pair = self.input.predicted is not None and self.input.gold is not None
         has_batch = self.input.dataset_dir is not None and self.input.pred_root is not None
-        if not (has_pair or has_batch):
+        if has_pair == has_batch:
             raise ValueError(
-                "evaluation requires predicted+gold or dataset_dir+pred_root"
+                "evaluation requires either predicted+gold or dataset_dir+pred_root"
             )
+        pair_partial = (self.input.predicted is None) != (self.input.gold is None)
+        batch_partial = (self.input.dataset_dir is None) != (self.input.pred_root is None)
+        if pair_partial or batch_partial:
+            raise ValueError("evaluation input pairs must be supplied together")
         return self
 
 
@@ -405,6 +409,26 @@ def validate_config_paths(config: MudidiConfig) -> None:
             ("input.dictionary_pages", config.input.dictionary_pages),
             ("input.introduction_pages", config.input.introduction_pages),
         ]
+        pages = config.input.pages
+        if pages is not None:
+            is_pdf = pages.is_file() and pages.suffix.lower() == ".pdf"
+            if is_pdf and not config.input.dictionary_pages:
+                raise ValueError(
+                    "input.dictionary_pages is required when input.pages is a PDF"
+                )
+            if is_pdf and config.input.introduction is not None:
+                raise ValueError(
+                    "input.introduction cannot be combined with PDF input.pages; "
+                    "use input.introduction_pages"
+                )
+            if not is_pdf and config.input.dictionary_pages is not None:
+                raise ValueError(
+                    "input.dictionary_pages is only valid when input.pages is a PDF"
+                )
+            if not is_pdf and config.input.introduction_pages is not None:
+                raise ValueError(
+                    "input.introduction_pages is only valid when input.pages is a PDF"
+                )
     else:
         paths = [
             ("input.predicted", config.input.predicted),
