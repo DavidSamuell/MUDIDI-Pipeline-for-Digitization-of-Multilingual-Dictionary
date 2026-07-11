@@ -59,6 +59,8 @@ def expand_benchmark_sweep(
 
     expanded: list[ExpandedSweepRun] = []
     if sweep.experiments is not None:
+        if selectors:
+            raise ValueError("--select is only valid for an axis sweep")
         for choice in sweep.experiments:
             if experiments and choice.id not in experiments:
                 continue
@@ -72,6 +74,17 @@ def expand_benchmark_sweep(
     else:
         assert sweep.axes is not None
         assert sweep.experiment_name is not None
+        unknown_axes = set(selectors or {}) - set(sweep.axes)
+        if unknown_axes:
+            raise ValueError(f"unknown sweep axes: {sorted(unknown_axes)}")
+        for axis, allowed in (selectors or {}).items():
+            available = {choice.id for choice in sweep.axes[axis]}
+            unknown_choices = allowed - available
+            if unknown_choices:
+                raise ValueError(
+                    f"unknown choices for sweep axis {axis!r}: "
+                    f"{sorted(unknown_choices)}"
+                )
         axis_names = list(sweep.axes)
         axis_choices = [sweep.axes[name] for name in axis_names]
         for combination in product(*axis_choices):

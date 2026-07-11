@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Sequence, cast
 
@@ -14,6 +15,7 @@ from mudidi.utils.pdf_split import parse_page_spec
 
 from mudidi.config.yaml_config import (
     BenchmarkRunConfig,
+    BenchmarkSweepConfig,
     ConfigKind,
     InferenceConfig,
     MudidiConfig,
@@ -791,8 +793,7 @@ def run_resolved_command(
 
     try:
         config = resolve_extraction_config(args, kind=kind)
-        validate_config_paths(config)
-        preview = _execution_preview(config)
+        preview = preview_extraction_config(config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if getattr(args, "dry_run", False):
@@ -808,12 +809,144 @@ def run_resolved_command(
         )
         return 0
 
+    return execute_extraction_config(config)
+
+
+def preview_extraction_config(
+    config: InferenceConfig | BenchmarkRunConfig,
+) -> dict[str, Any]:
+    """Validate and preview one extraction configuration without side effects."""
+
+    validate_config_paths(config)
+    return _execution_preview(config)
+
+
+def execute_extraction_config(
+    config: InferenceConfig | BenchmarkRunConfig,
+) -> int:
+    """Execute one previously validated typed extraction configuration."""
+
     configure_prompts(default_prompts_path())
     namespace = execution_namespace_from_config(config)
     _write_resolved_config(config)
     from mudidi.cli import extract as extract_module
 
     return extract_module.main(resolved_args=namespace)
+
+
+def _parse_sweep_selectors(values: list[str] | None) -> dict[str, set[str]]:
+    selectors: dict[str, set[str]] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise ValueError(f"--select must use AXIS=CHOICE syntax: {value!r}")
+        axis, choice = value.split("=", 1)
+        if not axis or not choice:
+            raise ValueError(f"--select must use AXIS=CHOICE syntax: {value!r}")
+        selectors.setdefault(axis, set()).add(choice)
+    return selectors
+
+
+def _write_sweep_manifest(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def run_benchmark_sweep_command(
+    args: argparse.Namespace,
+    *,
+    parser: argparse.ArgumentParser,
+) -> int:
+    """Expand, preview, and sequentially execute a typed benchmark sweep."""
+
+    from mudidi.config.benchmark_sweep import expand_benchmark_sweep
+
+    try:
+        loaded = load_yaml_config(args.config, expected_kind="benchmark_sweep")
+        if not isinstance(loaded, BenchmarkSweepConfig):
+            raise TypeError("benchmark sweep command requires BenchmarkSweepConfig")
+        selectors = _parse_sweep_selectors(getattr(args, "select", None))
+        runs = expand_benchmark_sweep(
+            loaded,
+            experiments=set(getattr(args, "experiment", None) or []),
+            selectors=selectors,
+            max_runs=getattr(args, "max_runs", None),
+        )
+        previews = [preview_extraction_config(run.config) for run in runs]
+    except (OSError, TypeError, ValueError) as exc:
+        parser.error(str(exc))
+
+    entry_run_count = sum(int(preview["entry_count"]) for preview in previews)
+    if getattr(args, "dry_run", False):
+        print(
+            json.dumps(
+                {
+                    "version": loaded.version,
+                    "kind": loaded.kind,
+                    "name": loaded.name,
+                    "run_count": len(runs),
+                    "entry_run_count": entry_run_count,
+                    "runs": [
+                        {
+                            "name": run.name,
+                            "choices": run.choices,
+                            "resolved_config": redacted_config_dict(run.config),
+                            "preview": preview,
+                        }
+                        for run, preview in zip(runs, previews)
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    manifest_path = (
+        loaded.base.output.directory
+        / "sweeps"
+        / loaded.name
+        / "sweep_manifest.json"
+    )
+    manifest: dict[str, Any] = {
+        "version": loaded.version,
+        "kind": loaded.kind,
+        "name": loaded.name,
+        "source_config": str(loaded.source_config) if loaded.source_config else None,
+        "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": "running",
+        "entry_run_count": entry_run_count,
+        "runs": [
+            {
+                "name": run.name,
+                "choices": run.choices,
+                "status": "pending",
+                "resolved_config": redacted_config_dict(run.config),
+            }
+            for run in runs
+        ],
+    }
+    _write_sweep_manifest(manifest_path, manifest)
+    any_failure = False
+    for index, run in enumerate(runs):
+        print(f"\n{'=' * 60}\nSweep experiment: {run.name}\n{'=' * 60}")
+        rc = execute_extraction_config(run.config)
+        status = "complete" if rc == 0 else "failed"
+        manifest["runs"][index]["status"] = status
+        manifest["runs"][index]["exit_code"] = rc
+        _write_sweep_manifest(manifest_path, manifest)
+        if rc != 0:
+            any_failure = True
+            if loaded.sweep.failure_policy == "stop":
+                break
+    manifest["status"] = "failed" if any_failure else "complete"
+    manifest["completed_utc"] = datetime.now(timezone.utc).isoformat(
+        timespec="seconds"
+    )
+    _write_sweep_manifest(manifest_path, manifest)
+    return 1 if any_failure else 0
 
 
 def run_evaluation_command(
