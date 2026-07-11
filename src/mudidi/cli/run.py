@@ -760,6 +760,7 @@ def _execution_preview(
     requested = set(config.input.languages or [])
     entries = []
     skipped = []
+    missing_prerequisites = []
     page_count = 0
     for entry in sorted(path for path in root.iterdir() if path.is_dir()):
         if requested and entry.name not in requested:
@@ -779,12 +780,26 @@ def _execution_preview(
                 "derived_output": str(config.output.directory / entry.name),
             }
         )
+        if config.input.stage1_predictions_root is not None:
+            prerequisite = (
+                config.input.stage1_predictions_root
+                / entry.name
+                / config.runtime.stage1_output_subdir
+                / config.runtime.experiment_name
+            )
+            if not prerequisite.is_dir():
+                missing_prerequisites.append(str(prerequisite))
         page_count += count
     missing = requested - {entry["name"] for entry in entries}
     if missing:
         raise ValueError(f"input.languages has no runnable entries: {sorted(missing)}")
     if not entries:
         raise ValueError(f"no runnable benchmark entries found under {root}")
+    if missing_prerequisites:
+        raise ValueError(
+            "missing Stage 1 prediction prerequisites: "
+            + ", ".join(missing_prerequisites)
+        )
     return {
         "entry_count": len(entries),
         "page_count": page_count,

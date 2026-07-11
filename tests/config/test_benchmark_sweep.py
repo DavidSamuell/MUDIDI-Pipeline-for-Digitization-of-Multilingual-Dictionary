@@ -210,3 +210,29 @@ sweep:
 
     with pytest.raises(ValueError, match="max_runs"):
         expand_benchmark_sweep(limited)
+
+
+def test_sweep_rejects_selection_with_no_remaining_runs(tmp_path: Path) -> None:
+    path = _write_sweep(
+        tmp_path / "empty.yaml",
+        """
+version: 1
+kind: benchmark_sweep
+name: empty
+base:
+  version: 1
+  kind: benchmark_run
+  input: {dataset_dir: dataset}
+  output: {directory: output}
+axes:
+  model:
+    - {id: only, set: {models.stage1: one}}
+experiment_name: "{model}"
+exclude:
+  - {model: only}
+""",
+    )
+    config = load_yaml_config(path)
+
+    with pytest.raises(ValueError, match="produced no runs"):
+        expand_benchmark_sweep(config)

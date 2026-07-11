@@ -124,4 +124,6 @@ def expand_benchmark_sweep(
         missing = experiments - set(names)
         if missing:
             raise ValueError(f"unknown sweep experiments: {sorted(missing)}")
+    if not expanded:
+        raise ValueError("benchmark sweep selection produced no runs")
     return expanded

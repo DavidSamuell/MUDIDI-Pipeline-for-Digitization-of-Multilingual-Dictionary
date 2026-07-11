@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reproduce the complete 30-language Stage 1 benchmark matrix recorded under
 # outputs/benchmark/stage-1. Pass sweep options such as --dry-run,
-# --experiment NAME, --select AXIS=CHOICE, or --max-runs N through "$@".
+# --experiment NAME or --max-runs N through "$@".
 
 set -euo pipefail
 

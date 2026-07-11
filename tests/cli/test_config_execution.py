@@ -8,12 +8,13 @@ import pytest
 
 from mudidi.cli.run import (
     execution_namespace_from_config,
+    preview_extraction_config,
     resolve_extraction_config,
     run_benchmark_sweep_command,
     run_evaluation_command,
     run_resolved_command,
 )
-from mudidi.config.yaml_config import InferenceConfig
+from mudidi.config.yaml_config import BenchmarkRunConfig, InferenceConfig
 
 
 def test_resolve_minimal_cli_inference_uses_defaults(tmp_path: Path) -> None:
@@ -333,3 +334,31 @@ experiments:
     assert payload["status"] == "complete"
     assert payload["runs"][0]["name"] == "second"
     assert payload["runs"][0]["status"] == "complete"
+
+
+def test_benchmark_preview_rejects_missing_stage1_prediction_slot(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    pages = dataset / "Evenki-Russian" / "Dictionary pages"
+    pages.mkdir(parents=True)
+    predictions = tmp_path / "predictions"
+    predictions.mkdir()
+    config = BenchmarkRunConfig.model_validate(
+        {
+            "kind": "benchmark_run",
+            "input": {
+                "dataset_dir": dataset,
+                "stage1_predictions_root": predictions,
+            },
+            "output": {"directory": tmp_path / "output"},
+            "pipeline": {"stage": "2", "stage1_source": "predictions"},
+            "runtime": {
+                "experiment_name": "missing-slot",
+                "stage2_experiment_name": "stage2-slot",
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="missing Stage 1 prediction prerequisites"):
+        preview_extraction_config(config)
