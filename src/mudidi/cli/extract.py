@@ -787,9 +787,6 @@ def _build_strategy(
             stage1_typography=bool(getattr(args, "stage1_typography", False)),
             stage1_agentic=bool(getattr(args, "stage1_agentic", False)),
             stage2_agentic=bool(getattr(args, "stage2_agentic", False)),
-            stage1_agentic_patch_verifier=bool(
-                getattr(args, "stage1_agentic_patch_verifier", False)
-            ),
             agentic_max_iterations=int(
                 getattr(args, "agentic_max_iterations", 2) or 0
             ),
@@ -813,11 +810,6 @@ def _build_strategy(
                 args,
                 "no_agentic_concrete_retry_gate",
                 False,
-            ),
-            agentic_max_rewrite_delta_ratio=(
-                None
-                if getattr(args, "no_agentic_max_rewrite_delta_gate", False)
-                else float(getattr(args, "agentic_max_rewrite_delta_ratio", 0.75))
             ),
             agentic_prefer_verifier_patches=not getattr(
                 args,
@@ -911,7 +903,7 @@ def _prepare_parse_rules_samples(
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main(*, resolved_args: argparse.Namespace | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Batch-extract dictionary entries from a directory of page images.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1455,13 +1447,6 @@ Examples:
         "loop before saving the final MDF artifact.",
     )
     parser.add_argument(
-        "--stage1-agentic-patch-verifier",
-        action="store_true",
-        dest="stage1_agentic_patch_verifier",
-        help="For Stage 1 agentic mode, use a patch-only verifier schema that "
-        "can only request exact line-local text replacements.",
-    )
-    parser.add_argument(
         "--agentic-max-iterations",
         type=int,
         default=2,
@@ -1514,22 +1499,6 @@ Examples:
         "(default: 0.55).",
     )
     parser.add_argument(
-        "--agentic-max-rewrite-delta-ratio",
-        type=float,
-        default=0.75,
-        dest="agentic_max_rewrite_delta_ratio",
-        help="Reject a correction attempt when normalized text delta is larger "
-        "than this ratio (default: 0.75). Ignored when "
-        "--no-agentic-max-rewrite-delta-gate is set.",
-    )
-    parser.add_argument(
-        "--no-agentic-max-rewrite-delta-gate",
-        action="store_true",
-        dest="no_agentic_max_rewrite_delta_gate",
-        help="Disable the destructive-rewrite guard so large correction attempts "
-        "are allowed through (sets max rewrite delta ratio to unlimited).",
-    )
-    parser.add_argument(
         "--agentic-max-patches-per-attempt",
         type=int,
         default=16,
@@ -1560,7 +1529,7 @@ Examples:
         "from the image (decision=recover).",
     )
 
-    args = parser.parse_args()
+    args = resolved_args if resolved_args is not None else parser.parse_args()
     attach_stage_models(args)
 
     if getattr(args, "pages", None):

@@ -89,6 +89,8 @@ def test_explicit_cli_overrides_replace_yaml_values() -> None:
         }
     )
 
+    assert config.pipeline.stage1_source == "gold"
+
     merged = merge_explicit_overrides(
         config,
         {
@@ -99,4 +101,3 @@ def test_explicit_cli_overrides_replace_yaml_values() -> None:
 
     assert merged.input.languages == ["Yiddish-English"]
     assert merged.models.default == "provider/model"
-

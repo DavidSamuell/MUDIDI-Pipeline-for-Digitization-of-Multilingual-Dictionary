@@ -1,0 +1,360 @@
+"""Versioned YAML configuration for MUDIDI commands.
+
+The models in this module are the public configuration boundary. Runtime
+credentials deliberately remain outside these models and are loaded from the
+environment by the LLM client.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from pathlib import Path
+from typing import Annotated, Any, Literal, TypeAlias
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+
+from mudidi.cli.model_args import DEFAULT_MODEL
+from mudidi.config.run_config import RunStage
+
+ConfigKind = Literal[
+    "inference",
+    "benchmark_run",
+    "stage1_evaluation",
+    "stage2_evaluation",
+]
+ReasoningEffort = Literal["none", "low", "medium", "high"]
+
+_PATH_KEYS = {
+    "pages",
+    "dataset_dir",
+    "samples_dir",
+    "introduction",
+    "alphabet",
+    "ocr_text",
+    "dictionary_languages",
+    "parse_rules_file",
+    "stage1_guides",
+    "stage2_guides",
+    "toolbox_pdf",
+    "directory",
+    "predicted",
+    "gold",
+    "pred_root",
+    "baseline_summary",
+    "comparison_output",
+    "marker_sub_list",
+}
+
+
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class InputConfig(_StrictModel):
+    """Input paths and page selection shared by extraction commands."""
+
+    pages: Path | None = None
+    dataset_dir: Path | None = None
+    samples_dir: Path | None = None
+    dictionary_pages: str | None = None
+    introduction: Path | None = None
+    introduction_pages: str | None = None
+    alphabet: Path | None = None
+    ocr_text: Path | None = None
+    dictionary_languages: Path | None = None
+    toolbox_pdf: Path | None = None
+    languages: list[str] | None = None
+
+
+class OutputConfig(_StrictModel):
+    """Output root for one command invocation."""
+
+    directory: Path
+
+
+class PipelineConfig(_StrictModel):
+    """Stage selection and two-stage extraction behavior."""
+
+    stage: RunStage = "all"
+    strategy: Literal["two_stage", "vlm_ocr"] = "two_stage"
+    stage1_mode: Literal["flat", "column"] = "flat"
+    stage1_input: Literal["auto", "flat", "column"] = "auto"
+    stage1_source: Literal["gold", "predictions"] = "predictions"
+    stage1_typography: bool = False
+    parse_rules_pages: list[str] = Field(default_factory=list)
+    parse_rules_file: Path | None = None
+    parse_rules_gold: bool = False
+    stage2_lexical_repair: bool = False
+    stage1_guides: Path | None = None
+    stage2_guides: Path | None = None
+
+    @model_validator(mode="after")
+    def validate_strategy_stage(self) -> PipelineConfig:
+        if self.strategy == "vlm_ocr" and self.stage != "1":
+            raise ValueError("vlm_ocr requires pipeline.stage: '1'")
+        if self.strategy == "vlm_ocr" and self.stage1_mode != "flat":
+            raise ValueError("vlm_ocr requires pipeline.stage1_mode: flat")
+        return self
+
+
+class ModelsConfig(_StrictModel):
+    """Model ids and reasoning controls for each pipeline step."""
+
+    default: str = DEFAULT_MODEL
+    stage1: str | None = None
+    stage2_pass1: str | None = None
+    stage2_pass2: str | None = None
+    stage1_reasoning: ReasoningEffort = "low"
+    stage2_reasoning: Literal["low", "medium", "high"] = "low"
+    temperature: float = Field(default=0.1, ge=0.0)
+
+
+class AgenticConfig(_StrictModel):
+    """Optional verifier-rewriter controls."""
+
+    stage1: bool = False
+    stage2: bool = False
+    max_iterations: int = Field(default=2, ge=0)
+    evaluator_model: str | None = None
+    rewriter_model: str | None = None
+    reasoning: ReasoningEffort = "low"
+    evaluator_reasoning: ReasoningEffort | None = None
+    rewriter_reasoning: ReasoningEffort | None = None
+    min_retry_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    max_patches_per_attempt: int = Field(default=16, ge=1)
+    verifier_patches: bool = True
+    require_concrete_retry: bool = True
+    catastrophic_recovery: bool = False
+
+
+class RuntimeConfig(_StrictModel):
+    """Execution, caching, resume, and experiment settings."""
+
+    batch_size: int = Field(default=1, ge=1)
+    limit: int | None = Field(default=None, ge=1)
+    overwrite: bool = False
+    prompt_cache: Literal["auto", "off"] = "auto"
+    media_reference: Literal["auto", "inline", "file-uri"] = "auto"
+    prompt_cache_key: str | None = None
+    experiment_name: str = "default"
+    stage2_experiment_name: str | None = None
+    stage1_output_subdir: str = "stage-1"
+    one_page_per_entry: bool = False
+    page_offset: int = 1
+    use_alphabet: bool = True
+    use_ocr_hint: bool = True
+    use_introduction: bool = True
+
+
+class VlmConfig(_StrictModel):
+    """Advanced local OCR/VLM backend settings."""
+
+    model: Literal["mineru2.5-pro", "paddleocr-vl-1.5", "glm-ocr"] | None = None
+    dpi: int = Field(default=200, ge=72)
+    mineru_batch_size: int = Field(default=8, ge=1)
+    mineru_max_new_tokens: int = Field(default=1024, ge=1)
+    mineru_backend: Literal["transformers", "vllm"] = "transformers"
+    paddle_rec_backend: Literal["native", "vllm-server"] = "native"
+    paddle_server_url: str | None = None
+    paddle_auto_server: bool = True
+    paddle_server_port: int = Field(default=8765, ge=1, le=65535)
+    paddle_server_python: Path | None = None
+    glm_prompt: str = "Text Recognition:"
+    glm_max_new_tokens: int = Field(default=8192, ge=1)
+    glm_backend: Literal["transformers", "vllm"] = "transformers"
+    glm_auto_server: bool = True
+    glm_server_url: str | None = None
+    glm_server_port: int = Field(default=8081, ge=1, le=65535)
+    glm_server_python: Path | None = None
+
+
+class _ExtractionConfig(_StrictModel):
+    version: Literal[1] = 1
+    input: InputConfig
+    output: OutputConfig
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+    agentic: AgenticConfig = Field(default_factory=AgenticConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    vlm: VlmConfig = Field(default_factory=VlmConfig)
+    source_config: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def validate_vlm(self) -> _ExtractionConfig:
+        if self.pipeline.strategy == "vlm_ocr" and self.vlm.model is None:
+            raise ValueError("vlm.model is required for strategy: vlm_ocr")
+        if self.pipeline.strategy != "vlm_ocr" and self.vlm.model is not None:
+            raise ValueError("vlm.model is only valid for strategy: vlm_ocr")
+        return self
+
+
+class InferenceConfig(_ExtractionConfig):
+    """Production inference configuration."""
+
+    kind: Literal["inference"] = "inference"
+
+    @model_validator(mode="after")
+    def require_pages(self) -> InferenceConfig:
+        if self.input.pages is None:
+            raise ValueError("input.pages is required for inference")
+        if self.pipeline.stage1_source == "gold":
+            raise ValueError("inference does not support stage1_source: gold")
+        return self
+
+
+class BenchmarkRunConfig(_ExtractionConfig):
+    """Benchmark extraction configuration."""
+
+    kind: Literal["benchmark_run"] = "benchmark_run"
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_benchmark_defaults(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = deepcopy(value)
+        pipeline = data.setdefault("pipeline", {})
+        if isinstance(pipeline, dict):
+            pipeline.setdefault("stage1_source", "gold")
+        return data
+
+    @model_validator(mode="after")
+    def require_benchmark_input(self) -> BenchmarkRunConfig:
+        if not any((self.input.dataset_dir, self.input.samples_dir, self.input.pages)):
+            raise ValueError(
+                "benchmark_run requires input.dataset_dir, input.samples_dir, or input.pages"
+            )
+        return self
+
+
+class EvaluationInputConfig(_StrictModel):
+    predicted: Path | None = None
+    gold: Path | None = None
+    dataset_dir: Path | None = None
+    pred_root: Path | None = None
+    languages: list[str] | None = None
+
+
+class EvaluationOptions(_StrictModel):
+    experiment_names: list[str] = Field(default_factory=list)
+    all_experiments: bool = False
+    workers: int = Field(default=1, ge=1)
+    per_language_script: bool = False
+    character_alignment: Literal["collapsed", "quick_match"] = "quick_match"
+    record_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    line_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    baseline_summary: Path | None = None
+    baseline_experiment: str | None = None
+    comparison_output: Path | None = None
+    marker_sub_list: Path | None = None
+    dictionary_languages: Path | None = None
+
+
+class _EvaluationConfig(_StrictModel):
+    version: Literal[1] = 1
+    input: EvaluationInputConfig
+    output: OutputConfig
+    evaluation: EvaluationOptions = Field(default_factory=EvaluationOptions)
+    source_config: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def require_input_pair_or_batch(self) -> _EvaluationConfig:
+        has_pair = self.input.predicted is not None and self.input.gold is not None
+        has_batch = self.input.dataset_dir is not None and self.input.pred_root is not None
+        if not (has_pair or has_batch):
+            raise ValueError(
+                "evaluation requires predicted+gold or dataset_dir+pred_root"
+            )
+        return self
+
+
+class Stage1EvaluationConfig(_EvaluationConfig):
+    kind: Literal["stage1_evaluation"] = "stage1_evaluation"
+
+
+class Stage2EvaluationConfig(_EvaluationConfig):
+    kind: Literal["stage2_evaluation"] = "stage2_evaluation"
+
+
+MudidiConfig: TypeAlias = Annotated[
+    InferenceConfig
+    | BenchmarkRunConfig
+    | Stage1EvaluationConfig
+    | Stage2EvaluationConfig,
+    Field(discriminator="kind"),
+]
+_CONFIG_ADAPTER = TypeAdapter(MudidiConfig)
+
+
+def _resolve_path_string(value: str, base_dir: Path) -> str:
+    if "://" in value:
+        return value
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return str(path.resolve())
+
+
+def _resolve_paths(value: Any, base_dir: Path, key: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {
+            child_key: _resolve_paths(child, base_dir, child_key)
+            for child_key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve_paths(child, base_dir, key) for child in value]
+    if isinstance(value, str) and key in _PATH_KEYS:
+        return _resolve_path_string(value, base_dir)
+    return value
+
+
+def load_yaml_config(
+    path: str | Path,
+    *,
+    expected_kind: ConfigKind | None = None,
+) -> MudidiConfig:
+    """Load and validate a MUDIDI YAML configuration file."""
+
+    config_path = Path(path).expanduser().resolve()
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("configuration root must be a YAML mapping")
+    resolved = _resolve_paths(raw, config_path.parent)
+    config = _CONFIG_ADAPTER.validate_python(resolved)
+    if expected_kind is not None and config.kind != expected_kind:
+        raise ValueError(
+            f"this command requires kind {expected_kind!r}; got {config.kind!r}"
+        )
+    return config.model_copy(update={"source_config": config_path})
+
+
+def merge_explicit_overrides(
+    config: MudidiConfig,
+    overrides: dict[str, Any],
+) -> MudidiConfig:
+    """Return ``config`` with sparse dotted-path CLI overrides applied."""
+
+    data = config.model_dump(mode="python", exclude={"source_config"})
+    merged = deepcopy(data)
+    for dotted_key, value in overrides.items():
+        parts = dotted_key.split(".")
+        target = merged
+        for part in parts[:-1]:
+            child = target.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                target[part] = child
+            target = child
+        target[parts[-1]] = value
+    updated = type(config).model_validate(merged)
+    return updated.model_copy(update={"source_config": config.source_config})
+
+
+def redacted_config_dict(config: MudidiConfig) -> dict[str, Any]:
+    """Return a JSON-compatible resolved configuration without credentials."""
+
+    data = config.model_dump(mode="json", exclude={"source_config"})
+    if config.source_config is not None:
+        data["source_config"] = str(config.source_config)
+    return data

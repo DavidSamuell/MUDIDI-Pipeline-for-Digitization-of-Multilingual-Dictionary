@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Literal, Sequence, cast
 
 from mudidi.config.run_config import RUN_STAGE_CHOICES, stage_from_cli
 from mudidi.llm.prompt_store import configure_prompts, default_prompts_path
 from mudidi.cli.model_args import forward_model_argv, register_model_arguments
 from mudidi.utils.pdf_split import parse_page_spec
+
+from mudidi.config.yaml_config import (
+    BenchmarkRunConfig,
+    ConfigKind,
+    InferenceConfig,
+    MudidiConfig,
+    Stage1EvaluationConfig,
+    Stage2EvaluationConfig,
+    load_yaml_config,
+    merge_explicit_overrides,
+    redacted_config_dict,
+)
 
 
 def register_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -174,13 +187,6 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         "loop before saving the final MDF artifact.",
     )
     parser.add_argument(
-        "--stage1-agentic-patch-verifier",
-        action="store_true",
-        dest="stage1_agentic_patch_verifier",
-        help="For Stage 1 agentic mode, use a patch-only verifier schema that "
-        "can only request exact line-local text replacements.",
-    )
-    parser.add_argument(
         "--agentic-max-iterations",
         type=int,
         default=2,
@@ -231,22 +237,6 @@ def register_run_arguments(parser: argparse.ArgumentParser) -> None:
         dest="agentic_min_retry_confidence",
         help="Minimum verifier confidence required before a retry can rewrite "
         "(default: 0.55).",
-    )
-    parser.add_argument(
-        "--agentic-max-rewrite-delta-ratio",
-        type=float,
-        default=0.75,
-        dest="agentic_max_rewrite_delta_ratio",
-        help="Reject a correction attempt when normalized text delta is larger "
-        "than this ratio (default: 0.75). Ignored when "
-        "--no-agentic-max-rewrite-delta-gate is set.",
-    )
-    parser.add_argument(
-        "--no-agentic-max-rewrite-delta-gate",
-        action="store_true",
-        dest="no_agentic_max_rewrite_delta_gate",
-        help="Disable the destructive-rewrite guard so large correction attempts "
-        "are allowed through (sets max rewrite delta ratio to unlimited).",
     )
     parser.add_argument(
         "--agentic-max-patches-per-attempt",
@@ -400,8 +390,6 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         argv.append("--stage1-agentic")
     if run_args.stage2_agentic:
         argv.append("--stage2-agentic")
-    if run_args.stage1_agentic_patch_verifier:
-        argv.append("--stage1-agentic-patch-verifier")
     if run_args.agentic_max_iterations != 2:
         argv.extend(["--agentic-max-iterations", str(run_args.agentic_max_iterations)])
     if run_args.agentic_evaluator_model:
@@ -431,16 +419,6 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
                 str(run_args.agentic_min_retry_confidence),
             ]
         )
-    if (
-        not run_args.no_agentic_max_rewrite_delta_gate
-        and run_args.agentic_max_rewrite_delta_ratio != 0.75
-    ):
-        argv.extend(
-            [
-                "--agentic-max-rewrite-delta-ratio",
-                str(run_args.agentic_max_rewrite_delta_ratio),
-            ]
-        )
     if run_args.agentic_max_patches_per_attempt != 16:
         argv.extend(
             [
@@ -450,8 +428,6 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         )
     if run_args.no_agentic_verifier_patches:
         argv.append("--no-agentic-verifier-patches")
-    if run_args.no_agentic_max_rewrite_delta_gate:
-        argv.append("--no-agentic-max-rewrite-delta-gate")
     if run_args.no_agentic_concrete_retry_gate:
         argv.append("--no-agentic-concrete-retry-gate")
     if run_args.agentic_catastrophic_recovery:
@@ -467,3 +443,244 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
         return extract_module.main()
     finally:
         sys.argv = old_argv
+
+
+_RUN_OVERRIDE_PATHS = {
+    "pages": "input.pages",
+    "dict_pages": "input.dictionary_pages",
+    "dataset_dir": "input.dataset_dir",
+    "languages": "input.languages",
+    "output_dir": "output.directory",
+    "stage": "pipeline.stage",
+    "model": "models.default",
+    "stage_1_model": "models.stage1",
+    "stage_2_pass_1_model": "models.stage2_pass1",
+    "stage_2_pass_2_model": "models.stage2_pass2",
+    "overwrite": "runtime.overwrite",
+    "experiment_name": "runtime.experiment_name",
+}
+
+
+def _namespace_values(args: argparse.Namespace) -> dict[str, Any]:
+    return {key: value for key, value in vars(args).items() if not key.startswith("_")}
+
+
+def _absolute_cli_path(value: Any) -> Any:
+    if value is None or isinstance(value, Path):
+        return value.resolve() if isinstance(value, Path) else None
+    return Path(str(value)).expanduser().resolve()
+
+
+def resolve_extraction_config(
+    args: argparse.Namespace,
+    *,
+    kind: Literal["inference", "benchmark_run"],
+) -> InferenceConfig | BenchmarkRunConfig:
+    """Resolve defaults, YAML, and explicitly supplied CLI values."""
+
+    values = _namespace_values(args)
+    config_path = values.get("config")
+    if config_path is not None:
+        config = load_yaml_config(config_path, expected_kind=kind)
+        if not isinstance(config, (InferenceConfig, BenchmarkRunConfig)):
+            raise TypeError(f"{kind} is not an extraction configuration")
+    else:
+        input_data: dict[str, Any] = {}
+        if "pages" in values:
+            input_data["pages"] = _absolute_cli_path(values["pages"])
+        if "dict_pages" in values:
+            input_data["dictionary_pages"] = values["dict_pages"]
+        if "dataset_dir" in values:
+            input_data["dataset_dir"] = _absolute_cli_path(values["dataset_dir"])
+        if "languages" in values:
+            input_data["languages"] = values["languages"]
+        output = values.get("output_dir")
+        if output is None:
+            raise ValueError("--output-dir is required when --config is omitted")
+        raw = {
+            "version": 1,
+            "kind": kind,
+            "input": input_data,
+            "output": {"directory": _absolute_cli_path(output)},
+        }
+        config_type = InferenceConfig if kind == "inference" else BenchmarkRunConfig
+        config = config_type.model_validate(raw)
+
+    overrides: dict[str, Any] = {}
+    for cli_name, config_path_name in _RUN_OVERRIDE_PATHS.items():
+        if cli_name not in values:
+            continue
+        value = values[cli_name]
+        if cli_name in {"pages", "dataset_dir", "output_dir"}:
+            value = _absolute_cli_path(value)
+        overrides[config_path_name] = value
+    return cast(
+        InferenceConfig | BenchmarkRunConfig,
+        merge_explicit_overrides(config, overrides),
+    )
+
+
+def execution_namespace_from_config(
+    config: InferenceConfig | BenchmarkRunConfig,
+) -> argparse.Namespace:
+    """Adapt a typed extraction config to the legacy orchestration namespace."""
+
+    input_config = config.input
+    pipeline = config.pipeline
+    models = config.models
+    agentic = config.agentic
+    runtime = config.runtime
+    vlm = config.vlm
+    pages = str(input_config.pages) if input_config.pages else None
+    samples_dir = input_config.samples_dir or input_config.dataset_dir
+    parse_rules_pages = list(pipeline.parse_rules_pages) or None
+    return argparse.Namespace(
+        input_image=pages,
+        pages=pages,
+        dict_pages=input_config.dictionary_pages,
+        output=str(config.output.directory),
+        output_dir=str(config.output.directory),
+        samples_dir=str(samples_dir) if samples_dir else None,
+        languages=input_config.languages,
+        intro=str(input_config.introduction) if input_config.introduction else None,
+        intro_pages=input_config.introduction_pages,
+        alphabet=str(input_config.alphabet) if input_config.alphabet else None,
+        ocr_text=str(input_config.ocr_text) if input_config.ocr_text else None,
+        dictionary_languages=(
+            str(input_config.dictionary_languages)
+            if input_config.dictionary_languages
+            else None
+        ),
+        toolbox_pdf=input_config.toolbox_pdf,
+        stage=pipeline.stage,
+        strategy=pipeline.strategy,
+        stage1_mode=pipeline.stage1_mode,
+        stage1_input=pipeline.stage1_input,
+        stage1_source=(
+            pipeline.stage1_source if config.kind == "benchmark_run" else "predictions"
+        ),
+        stage1_typography=pipeline.stage1_typography,
+        parse_rules_pages=parse_rules_pages,
+        parse_rules_file=pipeline.parse_rules_file,
+        parse_rules_gold=pipeline.parse_rules_gold,
+        stage2_lexical_repair=pipeline.stage2_lexical_repair,
+        stage1_guides_path=pipeline.stage1_guides,
+        stage2_guides_path=pipeline.stage2_guides,
+        model=models.default,
+        stage_1_model=models.stage1,
+        stage_2_pass_1_model=models.stage2_pass1,
+        stage_2_pass_2_model=models.stage2_pass2,
+        structure_model=None,
+        stage1_reasoning=models.stage1_reasoning,
+        stage2_reasoning=models.stage2_reasoning,
+        temperature=models.temperature,
+        stage1_agentic=agentic.stage1,
+        stage2_agentic=agentic.stage2,
+        agentic_max_iterations=agentic.max_iterations,
+        agentic_evaluator_model=agentic.evaluator_model,
+        agentic_rewriter_model=agentic.rewriter_model,
+        agentic_reasoning_effort=agentic.reasoning,
+        agentic_evaluator_reasoning_effort=agentic.evaluator_reasoning,
+        agentic_rewriter_reasoning_effort=agentic.rewriter_reasoning,
+        agentic_min_retry_confidence=agentic.min_retry_confidence,
+        agentic_max_patches_per_attempt=agentic.max_patches_per_attempt,
+        no_agentic_verifier_patches=not agentic.verifier_patches,
+        no_agentic_concrete_retry_gate=not agentic.require_concrete_retry,
+        agentic_catastrophic_recovery=agentic.catastrophic_recovery,
+        batch_size=runtime.batch_size,
+        limit=runtime.limit,
+        overwrite=runtime.overwrite,
+        prompt_cache=runtime.prompt_cache,
+        media_reference=runtime.media_reference,
+        prompt_cache_key=runtime.prompt_cache_key,
+        experiment_names=[runtime.experiment_name],
+        experiment_name=runtime.experiment_name,
+        stage2_experiment_name=runtime.stage2_experiment_name,
+        stage1_output_subdir=runtime.stage1_output_subdir,
+        one_page_per_entry=runtime.one_page_per_entry,
+        page_offset=runtime.page_offset,
+        no_alphabet=not runtime.use_alphabet,
+        no_ocr_hint=not runtime.use_ocr_hint,
+        no_intro=not runtime.use_introduction,
+        benchmark=config.kind == "benchmark_run",
+        prompt_mode="benchmark" if config.kind == "benchmark_run" else "inference",
+        prompts_file=None,
+        compare_gold=None,
+        vlm_model=vlm.model,
+        vlm_dpi=vlm.dpi,
+        mineru_batch_size=vlm.mineru_batch_size,
+        mineru_max_new_tokens=vlm.mineru_max_new_tokens,
+        vlm_backend=vlm.mineru_backend,
+        paddle_vl_rec_backend=vlm.paddle_rec_backend,
+        paddle_vl_rec_server_url=vlm.paddle_server_url,
+        paddle_auto_vllm_server=vlm.paddle_auto_server,
+        paddle_vl_server_port=vlm.paddle_server_port,
+        paddle_vllm_server_python=vlm.paddle_server_python,
+        glm_ocr_prompt=vlm.glm_prompt,
+        glm_max_new_tokens=vlm.glm_max_new_tokens,
+        glm_backend=vlm.glm_backend,
+        glm_auto_vllm_server=vlm.glm_auto_server,
+        glm_vllm_server_url=vlm.glm_server_url,
+        glm_vllm_server_port=vlm.glm_server_port,
+        glm_vllm_server_python=vlm.glm_server_python,
+    )
+
+
+def _write_resolved_config(config: MudidiConfig) -> None:
+    output_dir = config.output.directory
+    path = output_dir / "resolved_config.json"
+    overwrite = getattr(config, "runtime", None)
+    force = bool(overwrite and overwrite.overwrite)
+    if path.exists() and not force:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(redacted_config_dict(config), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def run_resolved_command(
+    args: argparse.Namespace,
+    *,
+    parser: argparse.ArgumentParser,
+    kind: Literal["inference", "benchmark_run"],
+) -> int:
+    """Resolve and execute an extraction command, or print a dry-run report."""
+
+    try:
+        config = resolve_extraction_config(args, kind=kind)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    if getattr(args, "dry_run", False):
+        print(json.dumps(redacted_config_dict(config), ensure_ascii=False, indent=2))
+        return 0
+
+    configure_prompts(default_prompts_path())
+    namespace = execution_namespace_from_config(config)
+    _write_resolved_config(config)
+    from mudidi.cli import extract as extract_module
+
+    return extract_module.main(resolved_args=namespace)
+
+
+def run_evaluation_command(
+    args: argparse.Namespace,
+    *,
+    parser: argparse.ArgumentParser,
+    kind: str,
+) -> int:
+    """Resolve and execute a Stage 1 or Stage 2 evaluation command."""
+
+    values = _namespace_values(args)
+    config_path = values.get("config")
+    if config_path is None:
+        parser.error("benchmark evaluation currently requires --config")
+    config = load_yaml_config(config_path, expected_kind=cast(ConfigKind, kind))
+    if isinstance(config, Stage1EvaluationConfig):
+        from mudidi.cli.evaluate_stage1 import main as evaluate
+    elif isinstance(config, Stage2EvaluationConfig):
+        from mudidi.cli.evaluate_stage2_mdf import main as evaluate
+    else:
+        parser.error(f"unsupported evaluation config: {config.kind}")
+    return evaluate(config=config)
