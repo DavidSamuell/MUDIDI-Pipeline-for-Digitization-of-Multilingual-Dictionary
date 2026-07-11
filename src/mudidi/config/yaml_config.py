@@ -21,6 +21,7 @@ from mudidi.utils.pdf_split import parse_page_spec
 ConfigKind = Literal[
     "inference",
     "benchmark_run",
+    "benchmark_sweep",
     "stage1_evaluation",
     "stage2_evaluation",
 ]
@@ -301,9 +302,67 @@ class Stage2EvaluationConfig(_EvaluationConfig):
     kind: Literal["stage2_evaluation"] = "stage2_evaluation"
 
 
+class SweepChoice(_StrictModel):
+    """One named axis choice or explicit benchmark experiment."""
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_.-]+$")
+    values: dict[str, Any] = Field(alias="set")
+
+
+class SweepOptions(_StrictModel):
+    """Execution guards for an expanded benchmark sweep."""
+
+    max_runs: int = Field(default=100, ge=1)
+    failure_policy: Literal["continue", "stop"] = "continue"
+
+
+class BenchmarkSweepConfig(_StrictModel):
+    """A typed collection of benchmark runs expanded from axes or a list."""
+
+    version: Literal[1] = 1
+    kind: Literal["benchmark_sweep"] = "benchmark_sweep"
+    name: str = Field(pattern=r"^[A-Za-z0-9_.-]+$")
+    base: BenchmarkRunConfig
+    axes: dict[str, list[SweepChoice]] | None = None
+    experiments: list[SweepChoice] | None = None
+    experiment_name: str | None = None
+    name_field: Literal[
+        "runtime.experiment_name", "runtime.stage2_experiment_name"
+    ] = "runtime.experiment_name"
+    exclude: list[dict[str, str]] = Field(default_factory=list)
+    sweep: SweepOptions = Field(default_factory=SweepOptions)
+    source_config: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def validate_definition(self) -> BenchmarkSweepConfig:
+        if (self.axes is None) == (self.experiments is None):
+            raise ValueError("benchmark_sweep requires exactly one of axes or experiments")
+        if self.axes is not None:
+            if not self.axes:
+                raise ValueError("benchmark_sweep axes cannot be empty")
+            if not self.experiment_name:
+                raise ValueError("experiment_name is required for an axis sweep")
+            for axis, choices in self.axes.items():
+                if not choices:
+                    raise ValueError(f"sweep axis {axis!r} cannot be empty")
+                ids = [choice.id for choice in choices]
+                if len(ids) != len(set(ids)):
+                    raise ValueError(f"sweep axis {axis!r} has duplicate choice ids")
+        if self.experiments is not None:
+            ids = [choice.id for choice in self.experiments]
+            if not ids:
+                raise ValueError("benchmark_sweep experiments cannot be empty")
+            if len(ids) != len(set(ids)):
+                raise ValueError("benchmark_sweep has duplicate experiment ids")
+            if self.exclude:
+                raise ValueError("exclude is only valid with axes")
+        return self
+
+
 MudidiConfig: TypeAlias = Annotated[
     InferenceConfig
     | BenchmarkRunConfig
+    | BenchmarkSweepConfig
     | Stage1EvaluationConfig
     | Stage2EvaluationConfig,
     Field(discriminator="kind"),
@@ -323,12 +382,17 @@ def _resolve_path_string(value: str, base_dir: Path) -> str:
 def _resolve_paths(value: Any, base_dir: Path, key: str | None = None) -> Any:
     if isinstance(value, dict):
         return {
-            child_key: _resolve_paths(child, base_dir, child_key)
+            child_key: (
+                child
+                if child_key == "exclude"
+                else _resolve_paths(child, base_dir, child_key)
+            )
             for child_key, child in value.items()
         }
     if isinstance(value, list):
         return [_resolve_paths(child, base_dir, key) for child in value]
-    if isinstance(value, str) and key in _PATH_KEYS:
+    path_key = key.rsplit(".", 1)[-1] if key else None
+    if isinstance(value, str) and path_key in _PATH_KEYS:
         return _resolve_path_string(value, base_dir)
     return value
 
@@ -389,6 +453,12 @@ def validate_config_paths(config: MudidiConfig) -> None:
 
     paths: list[tuple[str, Path | None]]
     page_specs: list[tuple[str, str | None]] = []
+    if isinstance(config, BenchmarkSweepConfig):
+        from mudidi.config.benchmark_sweep import expand_benchmark_sweep
+
+        for run in expand_benchmark_sweep(config):
+            validate_config_paths(run.config)
+        return
     if isinstance(config, (InferenceConfig, BenchmarkRunConfig)):
         paths = [
             ("input.pages", config.input.pages),

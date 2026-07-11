@@ -21,6 +21,7 @@ from mudidi.config.run_config import (
 )
 from mudidi.config.yaml_config import (
     BenchmarkRunConfig,
+    BenchmarkSweepConfig,
     InferenceConfig,
     Stage1EvaluationConfig,
     Stage2EvaluationConfig,
@@ -30,6 +31,7 @@ from mudidi.config.yaml_config import (
 __all__ = [
     "EXTRACT_STAGE_CHOICES",
     "BenchmarkRunConfig",
+    "BenchmarkSweepConfig",
     "InferenceConfig",
     "MEDIA_REFERENCE_CHOICES",
     "MediaReferenceMode",

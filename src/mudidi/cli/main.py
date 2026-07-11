@@ -78,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_run.add_argument("--experiment-name", default=argparse.SUPPRESS)
     benchmark_run.set_defaults(_handler=_run_benchmark)
 
+    benchmark_sweep = benchmark_sub.add_parser(
+        "sweep", help="Run a typed benchmark experiment sweep."
+    )
+    benchmark_sweep.add_argument("--config", type=Path, required=True)
+    benchmark_sweep.add_argument("--experiment", action="append")
+    benchmark_sweep.add_argument("--select", action="append")
+    benchmark_sweep.add_argument("--max-runs", type=int)
+    benchmark_sweep.add_argument("--dry-run", action="store_true")
+    benchmark_sweep.set_defaults(_handler=_run_benchmark_sweep)
+
     evaluate = benchmark_sub.add_parser("evaluate", help="Evaluate predictions.")
     evaluate_sub = evaluate.add_subparsers(dest="evaluation_stage", required=True)
     stage1_parser = evaluate_sub.add_parser("stage1")
@@ -133,6 +143,14 @@ def _run_benchmark(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     from mudidi.cli.run import run_resolved_command
 
     return run_resolved_command(args, parser=parser, kind="benchmark_run")
+
+
+def _run_benchmark_sweep(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> int:
+    from mudidi.cli.run import run_benchmark_sweep_command
+
+    return run_benchmark_sweep_command(args, parser=parser)
 
 
 def _run_evaluation(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
