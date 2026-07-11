@@ -39,9 +39,11 @@ def _add_sparse_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gold", "-g", default=argparse.SUPPRESS)
     parser.add_argument("--dataset-dir", default=argparse.SUPPRESS)
     parser.add_argument("--pred-root", default=argparse.SUPPRESS)
+    parser.add_argument("--samples-dir", default=argparse.SUPPRESS)
     parser.add_argument("--output-dir", "-o", default=argparse.SUPPRESS)
     parser.add_argument("--languages", nargs="+", default=argparse.SUPPRESS)
     parser.add_argument("--experiment-name", action="append", default=argparse.SUPPRESS)
+    parser.add_argument("--all-experiments", action="store_true", default=argparse.SUPPRESS)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,10 +69,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = benchmark_sub.add_parser("evaluate", help="Evaluate predictions.")
     evaluate_sub = evaluate.add_subparsers(dest="evaluation_stage", required=True)
-    for stage in ("stage1", "stage2"):
-        stage_parser = evaluate_sub.add_parser(stage)
-        _add_sparse_evaluation_arguments(stage_parser)
-        stage_parser.set_defaults(_handler=_run_evaluation)
+    stage1_parser = evaluate_sub.add_parser("stage1")
+    _add_sparse_evaluation_arguments(stage1_parser)
+    stage1_parser.add_argument("--experiment-name-contains", default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--include-vlm-ocr", action="store_true", default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--stage1-output-subdir", default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--metrics", choices=["full", "minimal"], default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--alignment-threshold", type=float, default=argparse.SUPPRESS)
+    stage1_parser.add_argument(
+        "--character-alignment",
+        choices=["collapsed", "quick_match"],
+        default=argparse.SUPPRESS,
+    )
+    stage1_parser.add_argument("--per-language-script", action="store_true", default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--overwrite", action="store_true", default=argparse.SUPPRESS)
+    stage1_parser.add_argument("--workers", type=int, default=argparse.SUPPRESS)
+    stage1_parser.set_defaults(_handler=_run_evaluation)
+
+    stage2_parser = evaluate_sub.add_parser("stage2")
+    _add_sparse_evaluation_arguments(stage2_parser)
+    stage2_parser.add_argument("--baseline-summary", default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--baseline-experiment", default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--comparison-output", default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--record-threshold", type=float, default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--line-threshold", type=float, default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--marker-sub-list", default=argparse.SUPPRESS)
+    stage2_parser.add_argument("--dictionary-languages", default=argparse.SUPPRESS)
+    stage2_parser.set_defaults(_handler=_run_evaluation)
 
     config = subparsers.add_parser("config", help="Configuration utilities.")
     config_sub = config.add_subparsers(dest="config_command", required=True)

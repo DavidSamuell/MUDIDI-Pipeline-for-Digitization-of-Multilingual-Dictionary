@@ -674,13 +674,53 @@ def run_evaluation_command(
 
     values = _namespace_values(args)
     config_path = values.get("config")
-    if config_path is None:
-        parser.error("benchmark evaluation currently requires --config")
-    config = load_yaml_config(config_path, expected_kind=cast(ConfigKind, kind))
-    if isinstance(config, Stage1EvaluationConfig):
+    if kind == "stage1_evaluation":
         from mudidi.cli.evaluate_stage1 import main as evaluate
-    elif isinstance(config, Stage2EvaluationConfig):
+    elif kind == "stage2_evaluation":
         from mudidi.cli.evaluate_stage2_mdf import main as evaluate
     else:
-        parser.error(f"unsupported evaluation config: {config.kind}")
-    return evaluate(config=config)
+        parser.error(f"unsupported evaluation kind: {kind}")
+    if config_path is not None:
+        config = load_yaml_config(config_path, expected_kind=cast(ConfigKind, kind))
+        if not isinstance(config, (Stage1EvaluationConfig, Stage2EvaluationConfig)):
+            parser.error(f"unsupported evaluation config: {config.kind}")
+        return evaluate(config=config)
+
+    argv: list[str] = []
+    flag_names = {
+        "predicted": "--predicted",
+        "gold": "--gold",
+        "dataset_dir": "--dataset-dir",
+        "pred_root": "--pred-root",
+        "samples_dir": "--samples-dir",
+        "output_dir": "--output-dir",
+        "experiment_name_contains": "--experiment-name-contains",
+        "stage1_output_subdir": "--stage1-output-subdir",
+        "metrics": "--metrics",
+        "alignment_threshold": "--alignment-threshold",
+        "character_alignment": "--character-alignment",
+        "workers": "--workers",
+        "baseline_summary": "--baseline-summary",
+        "baseline_experiment": "--baseline-experiment",
+        "comparison_output": "--comparison-output",
+        "record_threshold": "--record-threshold",
+        "line_threshold": "--line-threshold",
+        "marker_sub_list": "--marker-sub-list",
+        "dictionary_languages": "--dictionary-languages",
+    }
+    for name, flag in flag_names.items():
+        if name in values:
+            argv.extend([flag, str(values[name])])
+    for name, flag in {
+        "all_experiments": "--all-experiments",
+        "include_vlm_ocr": "--include-vlm-ocr",
+        "per_language_script": "--per-language-script",
+        "overwrite": "--overwrite",
+    }.items():
+        if values.get(name):
+            argv.append(flag)
+    if "languages" in values:
+        argv.extend(["--languages", *values["languages"]])
+    for experiment in values.get("experiment_name", []):
+        argv.extend(["--experiment-name", experiment])
+    return evaluate(argv)
