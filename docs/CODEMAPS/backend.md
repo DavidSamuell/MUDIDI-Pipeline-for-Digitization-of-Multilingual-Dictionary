@@ -10,6 +10,7 @@
 mudidi main (cli/main.py)
   ├─ run → typed inference config → extract.py
   ├─ benchmark run → typed benchmark config → extract.py
+  ├─ benchmark sweep → expand/validate all runs → sequential extract.py calls
   ├─ benchmark evaluate
   │    ├─ stage1 → evaluate_stage1.py:main
   │    └─ stage2 → evaluate_stage2_mdf.py:main
@@ -25,12 +26,22 @@ main.py (single public parser, sparse CLI overrides)
   → extract.py (orchestration driver)
 ```
 
+## Benchmark Sweep Flow
+
+```
+benchmark_sweep YAML
+  → benchmark_sweep.py (axes/explicit expansion, filters, max-runs guard)
+  → BenchmarkRunConfig validation + input/prerequisite preview for every run
+  → sequential execution (failure_policy: continue|stop)
+  → <output>/sweeps/<name>/sweep_manifest.json
+```
+
 ## Extraction Orchestration (`cli/extract.py`)
 
 Responsibilities:
 - Materialize page inputs (snippets dir, PDF split via pdftk, rasterize via PyMuPDF)
 - Collect intro / alphabet / OCR-hint / neighbor context
-- Select strategy: `TwoStageLLMExtraction` or VLM OCR batch
+- Select strategy: `TwoStageLLMExtraction`, VLM OCR batch, or Mathpix OCR batch
 - ThreadPoolExecutor page concurrency with rate-limit backoff
 - Write manifests, usage JSON, stage outputs
 
@@ -40,6 +51,7 @@ Responsibilities:
 |----------|------|--------|
 | `TwoStageLLMExtraction` | `extraction/llm_two_stage.py` | Stage 1 structured transcript → Pass 1 parse rules → Pass 2 MDF |
 | VLM OCR | `extraction/vlm_ocr.py` | Stage 1 only via `ocr/vlm/runner.py` |
+| Mathpix OCR | `extraction/mathpix_ocr.py` | Stage 1 Mathpix Convert API → flat text + reusable OCR hints |
 | `ExtractionStrategy` ABC | `extraction/base.py` | Extension point |
 
 ## LLM Pipeline

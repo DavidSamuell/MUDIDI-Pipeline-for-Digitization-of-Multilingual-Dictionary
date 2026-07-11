@@ -31,6 +31,7 @@ Stage 1 transcript ──► Stage 2 Pass 1 (parse-rule discovery) ──► par
 |---------|--------|------|
 | `mudidi run` | `cli/main.py` → typed inference config → `cli/extract.py` | Production inference |
 | `mudidi benchmark run` | `cli/main.py` → typed benchmark config → `cli/extract.py` | Benchmark extraction |
+| `mudidi benchmark sweep` | `config/benchmark_sweep.py` → typed benchmark runs | Multi-experiment benchmark matrix |
 | `mudidi benchmark evaluate stage1` | `cli/evaluate_stage1.py` | Flat transcription benchmark |
 | `mudidi benchmark evaluate stage2` | `cli/evaluate_stage2_mdf.py` | MDF record benchmark |
 | `mudidi config validate` | `config/yaml_config.py` | Offline YAML validation |
@@ -42,7 +43,8 @@ CLI (cli/)
   └─► Config (config/yaml_config.py, run_config.py, output_paths.py)
         └─► Extraction strategies (extraction/)
               ├─ TwoStageLLMExtraction (llm_two_stage.py)  [default]
-              └─ VLM OCR batch (vlm_ocr.py)
+              ├─ VLM OCR batch (vlm_ocr.py)
+              └─ Mathpix OCR batch (mathpix_ocr.py)
                     └─ OCR backends (ocr/) + LLM client (llm/)
                           └─ Schemas (schemas/) + Utils (utils/)
 ```
@@ -51,6 +53,7 @@ CLI (cli/)
 
 - **Inference**: user pages dir or PDF → `outputs/<run>/stage-1/`, `stage-2/`
 - **Benchmark**: `dataset/MUDIDI/dictionaries/<Lang-Pair>/` sample layout, gold comparison
+- **Sweep**: explicit runs or Cartesian axes → validated `BenchmarkRunConfig` list → sequential execution + sweep manifest
 
 ## Stage Control (`--stage`)
 

@@ -3,6 +3,7 @@
 | Legacy command or option | Replacement |
 |---|---|
 | `mudidi run --benchmark ...` | `mudidi benchmark run --config benchmark.yaml` |
+| Shell model/ablation matrices | `mudidi benchmark sweep --config sweep.yaml` |
 | `mudidi eval stage1 ...` | `mudidi benchmark evaluate stage1 --config evaluation.yaml` |
 | `mudidi eval stage2 ...` | `mudidi benchmark evaluate stage2 --config evaluation.yaml` |
 | `mudidi-eval-flat` | `mudidi benchmark evaluate stage1` |

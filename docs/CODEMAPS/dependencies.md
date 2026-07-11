@@ -47,7 +47,7 @@ Key env toggles: `OPENROUTER_PROVIDER_ORDER`, `GEMINI_MAX_RETRIES`, `LLM_RATE_LI
 
 | Backend | Integration | CLI Key |
 |---------|-------------|---------|
-| Mathpix | `ocr/mathpix.py` | `--ocr-backend mathpix` |
+| Mathpix | `extraction/mathpix_ocr.py`, `ocr/mathpix_convert.py` | `pipeline.strategy: mathpix_ocr` |
 | MinerU 2.5 Pro | `ocr/vlm/mineru.py` | `--vlm-model mineru2.5-pro` |
 | PaddleOCR-VL 1.5 | `ocr/vlm/paddle_vl.py` | `--vlm-model paddleocr-vl-1.5` |
 | GLM-OCR | `ocr/vlm/glm_ocr.py` | `--vlm-model glm-ocr` |
