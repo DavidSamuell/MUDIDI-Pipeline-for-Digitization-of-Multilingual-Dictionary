@@ -230,3 +230,32 @@ output:
 
     with pytest.raises(ValidationError, match="either predicted.gold or dataset_dir.pred_root"):
         load_yaml_config(path)
+
+
+def test_benchmark_config_accepts_mathpix_stage1_strategy(tmp_path: Path) -> None:
+    path = tmp_path / "mathpix.yaml"
+    path.write_text(
+        """
+version: 1
+kind: benchmark_run
+input:
+  dataset_dir: dataset
+output:
+  directory: output
+pipeline:
+  stage: "1"
+  strategy: mathpix_ocr
+runtime:
+  experiment_name: Mathpix-OCR
+mathpix:
+  poll_interval_seconds: 2
+  max_wait_seconds: 300
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(path)
+
+    assert config.pipeline.strategy == "mathpix_ocr"
+    assert config.mathpix.poll_interval_seconds == 2
+    assert config.mathpix.max_wait_seconds == 300
