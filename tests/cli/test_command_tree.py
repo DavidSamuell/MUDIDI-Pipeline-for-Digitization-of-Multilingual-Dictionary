@@ -82,6 +82,31 @@ def test_public_command_tree_parses_benchmark_evaluation() -> None:
     assert args.evaluation_stage == "stage1"
 
 
+def test_public_command_tree_parses_benchmark_sweep() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "benchmark",
+            "sweep",
+            "--config",
+            "stage1-sweep.yaml",
+            "--experiment",
+            "gemini_alpha",
+            "--select",
+            "model=gemini",
+            "--max-runs",
+            "20",
+            "--dry-run",
+        ]
+    )
+
+    assert args.benchmark_command == "sweep"
+    assert args.experiment == ["gemini_alpha"]
+    assert args.select == ["model=gemini"]
+    assert args.max_runs == 20
+    assert args.dry_run is True
+
+
 def test_unknown_run_option_fails_immediately() -> None:
     parser = build_parser()
 
