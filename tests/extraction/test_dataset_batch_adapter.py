@@ -71,3 +71,28 @@ def test_dataset_batch_fails_when_no_entry_has_supported_pages(tmp_path: Path) -
     )
 
     assert result == 1
+
+
+def test_legacy_snippets_batch_uses_configured_output_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "samples"
+    snippets = dataset / "Legacy-Language" / "snippets"
+    snippets.mkdir(parents=True)
+    output = tmp_path / "configured-output"
+    observed = []
+
+    def fake_run_single(args, _parser):
+        observed.append(args.output)
+        return 0
+
+    monkeypatch.setattr(extract, "_run_single_entry", fake_run_single)
+
+    result = extract._run_samples_dir(
+        _batch_args(dataset, output),
+        argparse.ArgumentParser(),
+    )
+
+    assert result == 0
+    assert observed == [str(output / "Legacy-Language")]

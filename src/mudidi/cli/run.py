@@ -604,6 +604,7 @@ def execution_namespace_from_config(
     samples_dir = input_config.samples_dir or input_config.dataset_dir
     parse_rules_pages = list(pipeline.parse_rules_pages) or None
     return argparse.Namespace(
+        resolved_config_snapshot=redacted_config_dict(config),
         input_image=pages,
         pages=pages,
         dict_pages=input_config.dictionary_pages,

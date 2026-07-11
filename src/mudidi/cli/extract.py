@@ -593,7 +593,11 @@ def _per_page_inputs_stage2(
 
 
 def _write_run_config(
-    target_dir: Path, manifest: Dict[str, Any], *, force: bool
+    target_dir: Path,
+    manifest: Dict[str, Any],
+    *,
+    force: bool,
+    resolved_config: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Write a run_config.json into ``target_dir`` honoring the resume guard.
 
@@ -612,6 +616,13 @@ def _write_run_config(
     path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    if resolved_config is not None:
+        resolved_path = target_dir / "resolved_config.json"
+        if force or not resolved_path.exists():
+            resolved_path.write_text(
+                json.dumps(resolved_config, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
 
 def _build_stage1_manifest(
@@ -1867,6 +1878,7 @@ def _run_samples_dir(args, parser) -> int:
         dictionary_pages = entry_dir / "Dictionary pages"
         if snippets_dir.is_dir():
             configure_sample_entry_args(args, entry_dir)
+            args.output = str(configured_output_root / entry_dir.name)
         elif dictionary_pages.is_dir():
             args.input_image = str(dictionary_pages)
             args.output = str(configured_output_root / entry_dir.name)
@@ -1939,6 +1951,11 @@ def _run_single_entry(args, parser) -> int:
     # ── Output dir (set up early so we can cache rendered PDF pages) ──────────
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
+    resolved_config = getattr(args, "resolved_config_snapshot", None)
+    if resolved_config is not None:
+        resolved_config = json.loads(json.dumps(resolved_config))
+        resolved_config["input"]["pages"] = str(input_path.resolve())
+        resolved_config["output"]["directory"] = str(output_dir.resolve())
     run_config = RunConfig.from_namespace(args)
     layout = output_layout_from_config(run_config)
     stage1_dir = layout.stage1_root
@@ -2098,6 +2115,7 @@ def _run_single_entry(args, parser) -> int:
                     else None,
                 ),
                 force=args.overwrite,
+                resolved_config=resolved_config,
             )
             _write_run_usage(
                 output_dir,
@@ -2190,6 +2208,7 @@ def _run_single_entry(args, parser) -> int:
                 stage1_dir,
                 _build_stage1_manifest(args, input_dir, images, ocr_dir),
                 force=args.overwrite,
+                resolved_config=resolved_config,
             )
         if runs_stage2_any(args.stage):
             _write_run_config(
@@ -2205,6 +2224,7 @@ def _run_single_entry(args, parser) -> int:
                     else None,
                 ),
                 force=args.overwrite,
+                resolved_config=resolved_config,
             )
     print("=" * 60)
 
