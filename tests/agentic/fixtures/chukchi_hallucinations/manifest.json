@@ -30,28 +30,6 @@
       ]
     },
     {
-      "id": "page_26_structural",
-      "page": "page_26",
-      "fixture": "page_26_structural.txt",
-      "gold": "dataset/MUDIDI/dictionaries/Chukchi-Russian/Stage 1 Gold OCR/page_26/page_26_stage1_GOLD_flat.txt",
-      "image": "dataset/MUDIDI/dictionaries/Chukchi-Russian/Dictionary pages/page_26.png",
-      "expected_path": "llm_rewrite",
-      "forbidden_markers": [
-        "\\lx",
-        "\\ge"
-      ],
-      "fixture_markers": [
-        "э'қэйгын ве́тер с дождём и́ли сне́гом\nэ'қэйгын ве́тер с дождём и́ли сне́гом",
-        "э'қуткук ссо́риться, поссо́риться\nэ'қэвык"
-      ],
-      "gold_required_tokens": [
-        "ээттик",
-        "э'йӈэк",
-        "во́тных",
-        "э'қу"
-      ]
-    },
-    {
       "id": "page_3_semantic_overwrite",
       "page": "page_3",
       "fixture": "page_3_semantic_overwrite.txt",

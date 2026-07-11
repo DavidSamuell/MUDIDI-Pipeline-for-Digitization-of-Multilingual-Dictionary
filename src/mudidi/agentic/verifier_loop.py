@@ -27,7 +27,6 @@ AgenticStopReason = Literal[
     "repeated_issue",
     "low_confidence_retry",
     "vague_retry",
-    "destructive_rewrite",
     "patch_quality_rejected",
     "catastrophic_recovery",
 ]
@@ -94,57 +93,6 @@ class AgenticVerifierDecision(BaseModel):
     retry_instruction: str = ""
 
 
-class AgenticTextPatch(BaseModel):
-    """One exact line-local text replacement proposed by a patch verifier."""
-
-    line_index: int = Field(description="0-based line index in the current output.")
-    old: str = Field(
-        description="Exact substring currently present on line_index. Must match once."
-    )
-    new: str = Field(
-        description="Exact replacement substring. Use empty string only for deletion."
-    )
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    reason: str = Field(default="", description="Brief visible evidence for this patch.")
-
-
-class AgenticPatchVerifierDecision(BaseModel):
-    """Patch-only verifier response.
-
-    This schema intentionally removes broad prose rewrite instructions from the
-    action space. Retry means "apply these exact patches if they match safely."
-    """
-
-    decision: AgenticDecision
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    patches: list[AgenticTextPatch] = Field(default_factory=list)
-    reject_reason: str = ""
-
-
-def patch_decision_to_verifier_decision(
-    decision: AgenticPatchVerifierDecision,
-) -> AgenticVerifierDecision:
-    """Convert patch-only verifier output into the generic loop decision."""
-    issues = [
-        AgenticIssue(
-            type="exact_text_patch",
-            severity="medium",
-            evidence=patch.reason,
-            suggested_fix=f"{patch.old} -> {patch.new}",
-            line_index=patch.line_index,
-            current_text=patch.old,
-            expected_text=patch.new,
-        )
-        for patch in decision.patches
-    ]
-    return AgenticVerifierDecision(
-        decision=decision.decision,
-        confidence=decision.confidence,
-        issues=issues,
-        retry_instruction=decision.reject_reason,
-    )
-
-
 class AgenticLoopConfig(BaseModel):
     """Loop controls shared by Stage 1 and Stage 2 agentic modes."""
 
@@ -152,7 +100,6 @@ class AgenticLoopConfig(BaseModel):
     stop_on_repeated_issue: bool = True
     min_retry_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
     require_concrete_retry_issue: bool = True
-    max_rewrite_delta_ratio: float | None = Field(default=0.75, ge=0.0, le=1.0)
     prefer_verifier_patches: bool = True
     max_patches_per_attempt: int | None = Field(default=16, ge=1)
     catastrophic_recovery_enabled: bool = False
@@ -269,15 +216,6 @@ def _has_concrete_retry_issue(decision: AgenticVerifierDecision) -> bool:
         if has_text_evidence or has_span_edit or has_location or has_parseable_fix:
             return True
     return False
-
-
-def _rewrite_delta_ratio(before: str, after: str) -> float:
-    """Return rough normalized edit distance for conservative rewrite gating."""
-    normalized_before = _normalized_for_change_check(before)
-    normalized_after = _normalized_for_change_check(after)
-    if not normalized_before and not normalized_after:
-        return 0.0
-    return 1.0 - SequenceMatcher(None, normalized_before, normalized_after).ratio()
 
 
 def _split_verify_result(result: VerifyReturn) -> tuple[AgenticVerifierDecision, dict[str, Any] | None]:
@@ -633,22 +571,6 @@ def run_bounded_verifier_loop(
                 attempts=attempts,
                 artifact_dir=artifact_dir,
             )
-
-        if not is_catastrophic and config.max_rewrite_delta_ratio is not None:
-            delta_ratio = _rewrite_delta_ratio(current, rewritten)
-            if delta_ratio > config.max_rewrite_delta_ratio:
-                _write_text(
-                    artifact_dir / f"attempt_{next_attempt}_rejected_output{output_suffix}",
-                    rewritten,
-                )
-                return _finish(
-                    stage=stage,
-                    output=current,
-                    stop_reason="destructive_rewrite",
-                    rewrite_count=rewrite_count,
-                    attempts=attempts,
-                    artifact_dir=artifact_dir,
-                )
 
         rewrite_count += 1
         current = rewritten

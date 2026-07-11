@@ -249,16 +249,10 @@ def parse_args() -> argparse.Namespace:
         help="Reasoning effort for correction/rewrite calls.",
     )
     parser.add_argument(
-        "--patch-verifier",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Use patch-only verifier (default). --no-patch-verifier uses full rewriter.",
-    )
-    parser.add_argument(
         "--agentic-max-patches-per-attempt",
         type=int,
         default=16,
-        help="Max exact patches per verifier round (patch verifier only).",
+        help="Max verifier-provided exact patches per correction round.",
     )
     parser.add_argument(
         "--catastrophic-recovery",
@@ -280,7 +274,6 @@ def main() -> int:
         transcribe_model=args.model,
         stage1_mode="flat",
         stage1_agentic=True,
-        stage1_agentic_patch_verifier=args.patch_verifier,
         agentic_max_iterations=args.agentic_max_iterations,
         agentic_reasoning_effort=args.agentic_reasoning,
         agentic_evaluator_reasoning_effort=args.agentic_evaluator_reasoning,
@@ -333,7 +326,6 @@ def main() -> int:
         "agentic_reasoning": args.agentic_reasoning,
         "agentic_evaluator_reasoning": args.agentic_evaluator_reasoning,
         "agentic_rewriter_reasoning": args.agentic_rewriter_reasoning,
-        "patch_verifier": args.patch_verifier,
         "agentic_max_patches_per_attempt": args.agentic_max_patches_per_attempt,
         "catastrophic_recovery": args.catastrophic_recovery,
         "pages": [m.__dict__ for m in all_metrics],

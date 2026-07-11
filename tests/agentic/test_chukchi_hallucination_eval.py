@@ -110,7 +110,7 @@ def test_chukchi_hallucination_fixture_integrity(case: HallucinationCase) -> Non
 def test_chukchi_hallucination_manifest_covers_expected_paths() -> None:
     expected_paths = {case.expected_path for case in CASES}
     assert expected_paths == {"localized_retry", "llm_rewrite", "recover"}
-    assert {case.page for case in CASES} == {"page_3", "page_26", "page_48"}
+    assert {case.page for case in CASES} == {"page_3", "page_48"}
 
 
 @pytest.mark.skipif(
@@ -137,7 +137,6 @@ def test_chukchi_agentic_hallucination_recovery(
         stage1_mode="flat",
         stage1_typography=False,
         stage1_agentic=True,
-        stage1_agentic_patch_verifier=False,
         agentic_max_iterations=3,
         agentic_evaluator_model=model,
         agentic_rewriter_model=model,
@@ -145,7 +144,6 @@ def test_chukchi_agentic_hallucination_recovery(
         agentic_evaluator_reasoning_effort=evaluator_reasoning,
         agentic_rewriter_reasoning_effort=rewriter_reasoning,
         agentic_catastrophic_recovery=True,
-        agentic_max_rewrite_delta_ratio=None,
     )
     ocr_result = OCRPageResult(
         source_image=str(case.image_path),

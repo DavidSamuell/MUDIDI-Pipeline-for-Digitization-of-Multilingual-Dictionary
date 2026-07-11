@@ -3,11 +3,8 @@ from pathlib import Path
 from mudidi.agentic.verifier_loop import (
     AgenticIssue,
     AgenticLoopConfig,
-    AgenticPatchVerifierDecision,
-    AgenticTextPatch,
     AgenticVerifierDecision,
     normalize_catastrophic_decision,
-    patch_decision_to_verifier_decision,
     run_bounded_verifier_loop,
 )
 
@@ -74,31 +71,6 @@ def test_loop_records_verifier_usage_in_artifacts_and_final_decision(tmp_path: P
     assert (tmp_path / "attempt_0_verifier_usage.json").is_file()
     final_decision = (tmp_path / "final_decision.json").read_text()
     assert '"agentic_usage_summary"' in final_decision
-
-
-def test_patch_decision_converts_to_exact_verifier_issues() -> None:
-    decision = patch_decision_to_verifier_decision(
-        AgenticPatchVerifierDecision(
-            decision="retry",
-            confidence=0.88,
-            patches=[
-                AgenticTextPatch(
-                    line_index=2,
-                    old="<b>abc</b>",
-                    new="<b>abd</b>",
-                    confidence=0.91,
-                    reason="visible final character is d",
-                )
-            ],
-        )
-    )
-
-    assert decision.decision == "retry"
-    assert decision.confidence == 0.88
-    assert decision.issues[0].type == "exact_text_patch"
-    assert decision.issues[0].line_index == 2
-    assert decision.issues[0].current_text == "<b>abc</b>"
-    assert decision.issues[0].expected_text == "<b>abd</b>"
 
 
 def test_loop_rewrites_until_verifier_accepts(tmp_path: Path) -> None:
@@ -270,40 +242,6 @@ def test_loop_treats_retry_instruction_without_evidence_as_vague(tmp_path: Path)
     assert result.rewrite_count == 0
 
 
-def test_loop_stops_when_rewrite_changes_too_much(tmp_path: Path) -> None:
-    def verify(output: str, attempt: int) -> AgenticVerifierDecision:
-        return AgenticVerifierDecision(
-            decision="retry",
-            confidence=0.9,
-            issues=[
-                AgenticIssue(
-                    type="localized_character_error",
-                    severity="medium",
-                    evidence="line 1 has one wrong character",
-                    suggested_fix="change abc to abd",
-                )
-            ],
-        )
-
-    def rewrite(output: str, decision: AgenticVerifierDecision, attempt: int) -> str:
-        return "completely unrelated regenerated page"
-
-    result = run_bounded_verifier_loop(
-        stage="stage1",
-        initial_output="abc\nsecond line\nthird line",
-        artifact_dir=tmp_path,
-        output_suffix=".txt",
-        verify=verify,
-        rewrite=rewrite,
-        config=AgenticLoopConfig(max_iterations=2, max_rewrite_delta_ratio=0.4),
-    )
-
-    assert result.output == "abc\nsecond line\nthird line"
-    assert result.stop_reason == "destructive_rewrite"
-    assert result.rewrite_count == 0
-    assert (tmp_path / "attempt_1_rejected_output.txt").is_file()
-
-
 def test_loop_applies_safe_verifier_patch_before_calling_rewriter(tmp_path: Path) -> None:
     verifier_outputs = [
         AgenticVerifierDecision(
@@ -388,7 +326,6 @@ def test_loop_records_rewriter_usage_when_rewriter_runs(tmp_path: Path) -> None:
         config=AgenticLoopConfig(
             max_iterations=2,
             prefer_verifier_patches=False,
-            max_rewrite_delta_ratio=None,
         ),
     )
 
@@ -633,7 +570,6 @@ def test_loop_catastrophic_recovery_rewrites_whole_page(tmp_path: Path) -> None:
         config=AgenticLoopConfig(
             max_iterations=2,
             catastrophic_recovery_enabled=True,
-            max_rewrite_delta_ratio=0.1,
         ),
     )
 
@@ -789,7 +725,6 @@ def test_loop_allows_large_rewrite_when_delta_gate_disabled(tmp_path: Path) -> N
         rewrite=rewrite,
         config=AgenticLoopConfig(
             max_iterations=2,
-            max_rewrite_delta_ratio=None,
             prefer_verifier_patches=False,
         ),
     )

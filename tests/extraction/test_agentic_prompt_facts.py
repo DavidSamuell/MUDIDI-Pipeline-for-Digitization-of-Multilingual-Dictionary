@@ -4,8 +4,6 @@ from mudidi.extraction.llm_two_stage import (
     AGENTIC_VERIFIER_MAX_TOKENS_ENV,
     DEFAULT_AGENTIC_VERIFIER_MAX_TOKENS,
     _agentic_verifier_max_tokens,
-    _numbered_lines,
-    _stage1_patch_verifier_system_prompt,
     _stage1_rewriter_system_prompt,
     _stage1_verifier_system_prompt,
     _stage2_rewriter_system_prompt,
@@ -57,15 +55,6 @@ def test_agentic_prompts_require_localized_retry_evidence() -> None:
     assert "expected_text" in verifier_prompt
     assert "Never leave current_text and expected_text empty" in verifier_prompt
     assert "minimum necessary edit" in rewriter_prompt
-
-
-def test_stage1_patch_verifier_prompt_is_patch_only() -> None:
-    prompt = _stage1_patch_verifier_system_prompt()
-
-    assert "patch-only verifier" in prompt
-    assert "exact line-local patch" in prompt
-    assert "broad alphabet-wide substitutions" in prompt
-    assert _numbered_lines("first\nsecond") == "0\tfirst\n1\tsecond"
 
 
 def test_agentic_verifier_max_tokens_defaults_to_safe_budget(monkeypatch) -> None:
