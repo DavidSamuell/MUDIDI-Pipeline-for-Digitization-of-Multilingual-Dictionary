@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -100,6 +101,14 @@ def run_mathpix_ocr_entry(
             )
             transcript = mathpix_transcript_from_lines_json(lines_path)
             write_flat_text(flat_path, transcript.all_lines())
+            hint_path = (
+                output_dir
+                / "ocr-hints"
+                / args.experiment_name
+                / f"{page.stem}.md"
+            )
+            hint_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(markdown_path, hint_path)
             print(f"[{index}/{len(pages)}] Mathpix {page.name} -> {flat_path}")
         except (MathpixConvertError, OSError, ValueError) as exc:
             logger.error("Mathpix failed for %s: %s", page, exc)

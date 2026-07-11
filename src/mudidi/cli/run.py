@@ -679,6 +679,7 @@ def execution_namespace_from_config(
         page_offset=runtime.page_offset,
         no_alphabet=not runtime.use_alphabet,
         no_ocr_hint=not runtime.use_ocr_hint,
+        ocr_hint_experiment=runtime.ocr_hint_experiment,
         no_intro=not runtime.use_introduction,
         benchmark=config.kind == "benchmark_run",
         prompt_mode="benchmark" if config.kind == "benchmark_run" else "inference",

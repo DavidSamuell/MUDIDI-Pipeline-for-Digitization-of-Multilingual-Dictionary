@@ -154,6 +154,7 @@ class RuntimeConfig(_StrictModel):
     page_offset: int = 1
     use_alphabet: bool = True
     use_ocr_hint: bool = True
+    ocr_hint_experiment: str | None = None
     use_introduction: bool = True
 
 

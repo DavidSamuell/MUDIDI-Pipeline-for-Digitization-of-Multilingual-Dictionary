@@ -90,6 +90,9 @@ def configure_benchmark_entry_args(
     args.dictionary_languages = (
         str(language_config) if language_config.is_file() else None
     )
+    hint_experiment = getattr(args, "ocr_hint_experiment", None)
+    if hint_experiment and not getattr(args, "no_ocr_hint", False):
+        args.ocr_text = str(output_dir / "ocr-hints" / hint_experiment)
     args.intro = None
     if not getattr(args, "no_intro", False):
         for name in (
