@@ -96,3 +96,44 @@ def test_legacy_snippets_batch_uses_configured_output_root(
 
     assert result == 0
     assert observed == [str(output / "Legacy-Language")]
+
+
+def test_dataset_batch_prepares_external_stage1_prediction_slot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    pages = dataset / "Evenki-Russian" / "Dictionary pages"
+    pages.mkdir(parents=True)
+    prediction_root = tmp_path / "stage1-predictions"
+    source_slot = (
+        prediction_root
+        / "Evenki-Russian"
+        / "stage-1"
+        / "gemini31pro_flat_alpha"
+    )
+    source_slot.mkdir(parents=True)
+    (source_slot / "run_config.json").write_text("{}", encoding="utf-8")
+    output = tmp_path / "stage2-output"
+    args = _batch_args(dataset, output)
+    args.stage1_predictions_root = str(prediction_root)
+    args.stage1_output_subdir = "stage-1"
+    args.experiment_name = "gemini31pro_flat_alpha"
+    observed = []
+
+    def fake_run_single(run_args, _parser):
+        destination = (
+            Path(run_args.output)
+            / "stage-1"
+            / "gemini31pro_flat_alpha"
+            / "run_config.json"
+        )
+        observed.append(destination.is_file())
+        return 0
+
+    monkeypatch.setattr(extract, "_run_single_entry", fake_run_single)
+
+    result = extract._run_samples_dir(args, argparse.ArgumentParser())
+
+    assert result == 0
+    assert observed == [True]

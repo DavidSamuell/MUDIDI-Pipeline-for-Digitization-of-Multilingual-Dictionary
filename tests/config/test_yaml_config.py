@@ -259,3 +259,31 @@ mathpix:
     assert config.pipeline.strategy == "mathpix_ocr"
     assert config.mathpix.poll_interval_seconds == 2
     assert config.mathpix.max_wait_seconds == 300
+
+
+def test_stage1_predictions_root_resolves_relative_to_config(tmp_path: Path) -> None:
+    path = tmp_path / "stage2.yaml"
+    path.write_text(
+        """
+version: 1
+kind: benchmark_run
+input:
+  dataset_dir: dataset
+  stage1_predictions_root: predictions/stage-1
+output:
+  directory: output
+pipeline:
+  stage: "2"
+  stage1_source: predictions
+runtime:
+  experiment_name: source-slot
+  stage2_experiment_name: stage2-slot
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(path)
+
+    assert config.input.stage1_predictions_root == (
+        tmp_path / "predictions/stage-1"
+    ).resolve()
