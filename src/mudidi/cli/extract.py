@@ -308,7 +308,7 @@ _STRATEGIES = {
     "two_stage": TwoStageLLMExtraction,
 }
 
-_STRATEGY_CHOICES = list(_STRATEGIES.keys()) + ["vlm_ocr"]
+_STRATEGY_CHOICES = list(_STRATEGIES.keys()) + ["vlm_ocr", "mathpix_ocr"]
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 _PDF_EXTS = {".pdf"}
@@ -1571,8 +1571,14 @@ Examples:
 
     _normalize_experiment_names(args, parser)
 
-    if args.stage1_mode == "flat" and args.strategy not in ("two_stage",):
-        parser.error("--stage1-mode flat requires --strategy two_stage")
+    if args.stage1_mode == "flat" and args.strategy not in (
+        "two_stage",
+        "vlm_ocr",
+        "mathpix_ocr",
+    ):
+        parser.error(
+            "--stage1-mode flat requires two_stage, vlm_ocr, or mathpix_ocr"
+        )
 
     if getattr(args, "batch_size", 1) < 1:
         parser.error("--batch-size must be >= 1")
@@ -1644,6 +1650,43 @@ Examples:
                 "unless --samples-dir is used."
             )
         return _run_single_entry_vlm(args, parser)
+
+    if args.strategy == "mathpix_ocr":
+        from mudidi.extraction.mathpix_ocr import (
+            run_mathpix_ocr_batch,
+            run_mathpix_ocr_entry,
+        )
+        from mudidi.ocr.mathpix_convert import MathpixConvertClient, MathpixConvertError
+
+        if args.samples_dir:
+            samples_root = Path(args.samples_dir)
+            if not samples_root.is_dir():
+                parser.error(f"--samples-dir must be a directory: {samples_root}")
+            try:
+                entries = _discover_sample_entries(samples_root, args.languages)
+            except ValueError as exc:
+                parser.error(str(exc))
+            return run_mathpix_ocr_batch(args, entries)
+        if not args.input_image or not args.output:
+            parser.error(
+                "--input-image and --output are required for mathpix_ocr "
+                "unless --samples-dir is used."
+            )
+        try:
+            client = MathpixConvertClient(
+                poll_interval_seconds=args.mathpix_poll_interval_seconds,
+                max_wait_seconds=args.mathpix_max_wait_seconds,
+                request_timeout_seconds=args.mathpix_request_timeout_seconds,
+            )
+        except MathpixConvertError as exc:
+            print(exc)
+            return 1
+        return run_mathpix_ocr_entry(
+            args,
+            Path(args.input_image),
+            Path(args.output),
+            client=client,
+        )
 
     if args.samples_dir:
         return _run_samples_dir(args, parser)

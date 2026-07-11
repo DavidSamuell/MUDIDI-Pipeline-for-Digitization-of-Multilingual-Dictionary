@@ -602,6 +602,7 @@ def execution_namespace_from_config(
     agentic = config.agentic
     runtime = config.runtime
     vlm = config.vlm
+    mathpix = config.mathpix
     pages = str(input_config.pages) if input_config.pages else None
     samples_dir = input_config.samples_dir or input_config.dataset_dir
     parse_rules_pages = list(pipeline.parse_rules_pages) or None
@@ -695,6 +696,9 @@ def execution_namespace_from_config(
         glm_vllm_server_url=vlm.glm_server_url,
         glm_vllm_server_port=vlm.glm_server_port,
         glm_vllm_server_python=vlm.glm_server_python,
+        mathpix_poll_interval_seconds=mathpix.poll_interval_seconds,
+        mathpix_max_wait_seconds=mathpix.max_wait_seconds,
+        mathpix_request_timeout_seconds=mathpix.request_timeout_seconds,
     )
 
 

@@ -81,7 +81,7 @@ class PipelineConfig(_StrictModel):
     """Stage selection and two-stage extraction behavior."""
 
     stage: RunStage = "all"
-    strategy: Literal["two_stage", "vlm_ocr"] = "two_stage"
+    strategy: Literal["two_stage", "vlm_ocr", "mathpix_ocr"] = "two_stage"
     stage1_mode: Literal["flat", "column"] = "flat"
     stage1_input: Literal["auto", "flat", "column"] = "auto"
     stage1_source: Literal["gold", "predictions"] = "predictions"
@@ -99,6 +99,10 @@ class PipelineConfig(_StrictModel):
             raise ValueError("vlm_ocr requires pipeline.stage: '1'")
         if self.strategy == "vlm_ocr" and self.stage1_mode != "flat":
             raise ValueError("vlm_ocr requires pipeline.stage1_mode: flat")
+        if self.strategy == "mathpix_ocr" and self.stage != "1":
+            raise ValueError("mathpix_ocr requires pipeline.stage: '1'")
+        if self.strategy == "mathpix_ocr" and self.stage1_mode != "flat":
+            raise ValueError("mathpix_ocr requires pipeline.stage1_mode: flat")
         return self
 
 
@@ -173,6 +177,14 @@ class VlmConfig(_StrictModel):
     glm_server_python: Path | None = None
 
 
+class MathpixConfig(_StrictModel):
+    """Mathpix Convert API polling and timeout controls."""
+
+    poll_interval_seconds: float = Field(default=3.0, gt=0)
+    max_wait_seconds: float = Field(default=600.0, gt=0)
+    request_timeout_seconds: float = Field(default=60.0, gt=0)
+
+
 class _ExtractionConfig(_StrictModel):
     version: Literal[1] = 1
     input: InputConfig
@@ -182,6 +194,7 @@ class _ExtractionConfig(_StrictModel):
     agentic: AgenticConfig = Field(default_factory=AgenticConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     vlm: VlmConfig = Field(default_factory=VlmConfig)
+    mathpix: MathpixConfig = Field(default_factory=MathpixConfig)
     source_config: Path | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
