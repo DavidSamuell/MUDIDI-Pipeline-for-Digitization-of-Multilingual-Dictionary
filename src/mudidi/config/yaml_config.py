@@ -31,6 +31,7 @@ _PATH_KEYS = {
     "pages",
     "dataset_dir",
     "samples_dir",
+    "stage1_predictions_root",
     "introduction",
     "alphabet",
     "ocr_text",
@@ -61,6 +62,7 @@ class InputConfig(_StrictModel):
     pages: Path | None = None
     dataset_dir: Path | None = None
     samples_dir: Path | None = None
+    stage1_predictions_root: Path | None = None
     dictionary_pages: str | None = None
     introduction: Path | None = None
     introduction_pages: str | None = None
@@ -252,6 +254,14 @@ class BenchmarkRunConfig(_ExtractionConfig):
         if not any((self.input.dataset_dir, self.input.samples_dir, self.input.pages)):
             raise ValueError(
                 "benchmark_run requires input.dataset_dir, input.samples_dir, or input.pages"
+            )
+        if self.input.stage1_predictions_root is not None and (
+            self.pipeline.stage1_source != "predictions"
+            or self.pipeline.stage not in ("2", "2-pass-1", "2-pass-2")
+        ):
+            raise ValueError(
+                "input.stage1_predictions_root requires a Stage 2-only run "
+                "with pipeline.stage1_source: predictions"
             )
         return self
 
@@ -477,6 +487,7 @@ def validate_config_paths(config: MudidiConfig) -> None:
             ("input.pages", config.input.pages),
             ("input.dataset_dir", config.input.dataset_dir),
             ("input.samples_dir", config.input.samples_dir),
+            ("input.stage1_predictions_root", config.input.stage1_predictions_root),
             ("input.introduction", config.input.introduction),
             ("input.alphabet", config.input.alphabet),
             ("input.ocr_text", config.input.ocr_text),

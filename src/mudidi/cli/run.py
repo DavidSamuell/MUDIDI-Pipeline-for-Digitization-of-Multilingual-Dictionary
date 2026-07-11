@@ -614,6 +614,11 @@ def execution_namespace_from_config(
         output=str(config.output.directory),
         output_dir=str(config.output.directory),
         samples_dir=str(samples_dir) if samples_dir else None,
+        stage1_predictions_root=(
+            str(input_config.stage1_predictions_root)
+            if input_config.stage1_predictions_root
+            else None
+        ),
         languages=input_config.languages,
         intro=str(input_config.introduction) if input_config.introduction else None,
         intro_pages=input_config.introduction_pages,

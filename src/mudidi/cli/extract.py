@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -29,7 +30,7 @@ from mudidi.evaluation.stage2.mdf_evaluator import MdfEvaluator
 from mudidi.evaluation.stage1.flat_evaluator import FlatStage1Evaluator
 from mudidi.paths import PARSE_RULES_FILENAME, PARSE_RULES_USAGE_FILENAME
 from mudidi.extraction.sample_entry import (
-    configure_sample_entry_args,
+    configure_benchmark_entry_args,
     report_entry_input_failures,
     stage1_context_inputs_apply,
     validate_configured_sample_entry,
@@ -1917,44 +1918,37 @@ def _run_samples_dir(args, parser) -> int:
     attempted = 0
     configured_output_root = Path(args.output)
     for entry_dir in entries:
-        snippets_dir = entry_dir / "snippets"
-        dictionary_pages = entry_dir / "Dictionary pages"
-        if snippets_dir.is_dir():
-            configure_sample_entry_args(args, entry_dir)
-            args.output = str(configured_output_root / entry_dir.name)
-        elif dictionary_pages.is_dir():
-            args.input_image = str(dictionary_pages)
-            args.output = str(configured_output_root / entry_dir.name)
-            args.entry_dir = str(entry_dir)
-            alphabet = entry_dir / "Alphabet list" / "alphabet.txt"
-            args.alphabet = (
-                str(alphabet)
-                if alphabet.is_file() and not getattr(args, "no_alphabet", False)
-                else None
-            )
-            language_config = entry_dir / "dictionary_languages.yaml"
-            args.dictionary_languages = (
-                str(language_config) if language_config.is_file() else None
-            )
-            args.intro = None
-            if not getattr(args, "no_intro", False):
-                for name in (
-                    "introduction",
-                    "Introduction",
-                    "intro",
-                    "Intro",
-                    "preface",
-                    "Preface",
-                ):
-                    candidate = entry_dir / name
-                    if candidate.exists():
-                        args.intro = str(candidate)
-                        break
-        else:
+        pages_dir, _ = configure_benchmark_entry_args(
+            args, entry_dir, configured_output_root
+        )
+        if not pages_dir.is_dir():
             print(
                 f"[skip] {entry_dir.name}: no snippets/ or Dictionary pages/ folder"
             )
             continue
+
+        predictions_root = getattr(args, "stage1_predictions_root", None)
+        if predictions_root:
+            source_slot = (
+                Path(predictions_root)
+                / entry_dir.name
+                / args.stage1_output_subdir
+                / args.experiment_name
+            )
+            destination_slot = (
+                Path(args.output)
+                / args.stage1_output_subdir
+                / args.experiment_name
+            )
+            if not source_slot.is_dir():
+                print(
+                    f"[failed] {entry_dir.name}: missing Stage 1 prediction slot "
+                    f"{source_slot}"
+                )
+                any_failure = True
+                continue
+            if source_slot.resolve() != destination_slot.resolve():
+                shutil.copytree(source_slot, destination_slot, dirs_exist_ok=True)
 
         print("\n" + "#" * 60)
         print(f"# Entry: {entry_dir.name}")
