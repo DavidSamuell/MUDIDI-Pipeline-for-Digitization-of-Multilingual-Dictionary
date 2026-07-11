@@ -1860,21 +1860,58 @@ def _run_samples_dir(args, parser) -> int:
     )
 
     any_failure = False
+    attempted = 0
+    configured_output_root = Path(args.output)
     for entry_dir in entries:
         snippets_dir = entry_dir / "snippets"
-        if not snippets_dir.is_dir():
-            print(f"[skip] {entry_dir.name}: no snippets/ folder")
+        dictionary_pages = entry_dir / "Dictionary pages"
+        if snippets_dir.is_dir():
+            configure_sample_entry_args(args, entry_dir)
+        elif dictionary_pages.is_dir():
+            args.input_image = str(dictionary_pages)
+            args.output = str(configured_output_root / entry_dir.name)
+            args.entry_dir = str(entry_dir)
+            alphabet = entry_dir / "Alphabet list" / "alphabet.txt"
+            args.alphabet = (
+                str(alphabet)
+                if alphabet.is_file() and not getattr(args, "no_alphabet", False)
+                else None
+            )
+            language_config = entry_dir / "dictionary_languages.yaml"
+            args.dictionary_languages = (
+                str(language_config) if language_config.is_file() else None
+            )
+            args.intro = None
+            if not getattr(args, "no_intro", False):
+                for name in (
+                    "introduction",
+                    "Introduction",
+                    "intro",
+                    "Intro",
+                    "preface",
+                    "Preface",
+                ):
+                    candidate = entry_dir / name
+                    if candidate.exists():
+                        args.intro = str(candidate)
+                        break
+        else:
+            print(
+                f"[skip] {entry_dir.name}: no snippets/ or Dictionary pages/ folder"
+            )
             continue
-
-        configure_sample_entry_args(args, entry_dir)
 
         print("\n" + "#" * 60)
         print(f"# Entry: {entry_dir.name}")
         print("#" * 60)
+        attempted += 1
         rc = _run_single_entry(args, parser)
         if rc != 0:
             any_failure = True
 
+    if attempted == 0:
+        print(f"No runnable entries found under {samples_root}")
+        return 1
     return 1 if any_failure else 0
 
 

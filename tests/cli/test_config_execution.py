@@ -3,15 +3,19 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import pytest
+
 from mudidi.cli.run import (
     execution_namespace_from_config,
     resolve_extraction_config,
+    run_evaluation_command,
     run_resolved_command,
 )
 from mudidi.config.yaml_config import InferenceConfig
 
 
 def test_resolve_minimal_cli_inference_uses_defaults(tmp_path: Path) -> None:
+    (tmp_path / "pages").mkdir()
     args = argparse.Namespace(
         pages=str(tmp_path / "pages"),
         output_dir=str(tmp_path / "output"),
@@ -60,6 +64,36 @@ runtime:
     assert config.output.directory == tmp_path / "original-output"
 
 
+def test_common_cli_input_paths_override_yaml_as_absolute_paths(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """
+version: 1
+kind: inference
+input:
+  pages: original-pages
+output:
+  directory: original-output
+""".strip(),
+        encoding="utf-8",
+    )
+    args = argparse.Namespace(
+        config=path,
+        intro=tmp_path / "intro.pdf",
+        intro_pages="2-4",
+        alphabet=tmp_path / "alphabet.txt",
+        dictionary_languages=tmp_path / "languages.yaml",
+        dry_run=True,
+    )
+
+    config = resolve_extraction_config(args, kind="inference")
+
+    assert config.input.introduction == (tmp_path / "intro.pdf").resolve()
+    assert config.input.introduction_pages == "2-4"
+    assert config.input.alphabet == (tmp_path / "alphabet.txt").resolve()
+    assert config.input.dictionary_languages == (tmp_path / "languages.yaml").resolve()
+
+
 def test_execution_namespace_maps_advanced_yaml_settings(tmp_path: Path) -> None:
     config = InferenceConfig.model_validate(
         {
@@ -82,6 +116,25 @@ def test_execution_namespace_maps_advanced_yaml_settings(tmp_path: Path) -> None
     assert namespace.agentic_max_iterations == 3
     assert namespace.batch_size == 2
     assert namespace.overwrite is True
+    assert namespace.stage1_reasoning_effort == "low"
+    assert namespace.stage2_reasoning_effort == "low"
+
+
+def test_minimal_production_config_does_not_require_optional_alphabet(
+    tmp_path: Path,
+) -> None:
+    config = InferenceConfig.model_validate(
+        {
+            "kind": "inference",
+            "input": {"pages": tmp_path / "pages"},
+            "output": {"directory": tmp_path / "output"},
+        }
+    )
+
+    namespace = execution_namespace_from_config(config)
+
+    assert config.runtime.use_alphabet is False
+    assert namespace.no_alphabet is True
 
 
 def test_dry_run_does_not_invoke_extraction(
@@ -89,8 +142,11 @@ def test_dry_run_does_not_invoke_extraction(
     tmp_path: Path,
     capsys,
 ) -> None:
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "page_1.png").write_bytes(b"not-decoded-in-dry-run")
     args = argparse.Namespace(
-        pages=str(tmp_path / "pages"),
+        pages=str(pages),
         output_dir=str(tmp_path / "output"),
         dry_run=True,
     )
@@ -103,3 +159,64 @@ def test_dry_run_does_not_invoke_extraction(
     output = capsys.readouterr().out
     assert '"kind": "inference"' in output
     assert '"stage1_mode": "flat"' in output
+    assert '"page_count": 1' in output
+    assert '"derived_output"' in output
+
+
+def test_dry_run_rejects_missing_inputs(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        pages=str(tmp_path / "missing"),
+        output_dir=str(tmp_path / "output"),
+        dry_run=True,
+    )
+
+    with pytest.raises(SystemExit):
+        run_resolved_command(args, parser=argparse.ArgumentParser(), kind="inference")
+
+
+def test_evaluation_cli_values_override_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "evaluation.yaml"
+    config_path.write_text(
+        """
+version: 1
+kind: stage1_evaluation
+input:
+  predicted: original-prediction.txt
+  gold: gold.txt
+output:
+  directory: original-output
+evaluation:
+  workers: 2
+""".strip(),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_evaluate(*, config):
+        captured["config"] = config
+        return 0
+
+    monkeypatch.setattr("mudidi.cli.evaluate_stage1.main", fake_evaluate)
+    args = argparse.Namespace(
+        config=config_path,
+        predicted=str(tmp_path / "override.txt"),
+        output_dir=str(tmp_path / "override-output"),
+        experiment_name=["cli-one", "cli-two"],
+        evaluation_stage="stage1",
+    )
+
+    result = run_evaluation_command(
+        args,
+        parser=argparse.ArgumentParser(),
+        kind="stage1_evaluation",
+    )
+
+    assert result == 0
+    config = captured["config"]
+    assert config.input.predicted == (tmp_path / "override.txt").resolve()
+    assert config.output.directory == (tmp_path / "override-output").resolve()
+    assert config.evaluation.experiment_names == ["cli-one", "cli-two"]
+    assert config.evaluation.workers == 2

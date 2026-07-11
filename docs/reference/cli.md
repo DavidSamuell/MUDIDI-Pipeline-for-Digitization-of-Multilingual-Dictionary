@@ -23,7 +23,11 @@ options:
 
 ```text
 usage: mudidi run [-h] [--config CONFIG] [--pages PAGES]
-                  [--dict-pages DICT_PAGES] [--output-dir OUTPUT_DIR]
+                  [--dict-pages DICT_PAGES] [--intro INTRO]
+                  [--intro-pages INTRO_PAGES] [--alphabet ALPHABET]
+                  [--ocr-text OCR_TEXT]
+                  [--dictionary-languages DICTIONARY_LANGUAGES]
+                  [--toolbox-pdf TOOLBOX_PDF] [--output-dir OUTPUT_DIR]
                   [--stage {1,2,all,2-pass-1,2-pass-2}] [--model MODEL]
                   [--stage-1-model STAGE_1_MODEL]
                   [--stage-2-pass-1-model STAGE_2_PASS_1_MODEL]
@@ -35,6 +39,12 @@ options:
   --config CONFIG
   --pages PAGES
   --dict-pages DICT_PAGES
+  --intro INTRO
+  --intro-pages INTRO_PAGES
+  --alphabet ALPHABET
+  --ocr-text OCR_TEXT
+  --dictionary-languages DICTIONARY_LANGUAGES
+  --toolbox-pdf TOOLBOX_PDF
   --output-dir OUTPUT_DIR
   --stage {1,2,all,2-pass-1,2-pass-2}
   --model MODEL
@@ -63,7 +73,11 @@ options:
 
 ```text
 usage: mudidi benchmark run [-h] [--config CONFIG] [--pages PAGES]
-                            [--dict-pages DICT_PAGES]
+                            [--dict-pages DICT_PAGES] [--intro INTRO]
+                            [--intro-pages INTRO_PAGES] [--alphabet ALPHABET]
+                            [--ocr-text OCR_TEXT]
+                            [--dictionary-languages DICTIONARY_LANGUAGES]
+                            [--toolbox-pdf TOOLBOX_PDF]
                             [--output-dir OUTPUT_DIR]
                             [--stage {1,2,all,2-pass-1,2-pass-2}]
                             [--model MODEL] [--stage-1-model STAGE_1_MODEL]
@@ -71,6 +85,7 @@ usage: mudidi benchmark run [-h] [--config CONFIG] [--pages PAGES]
                             [--stage-2-pass-2-model STAGE_2_PASS_2_MODEL]
                             [--overwrite] [--dry-run]
                             [--dataset-dir DATASET_DIR]
+                            [--samples-dir SAMPLES_DIR]
                             [--languages LANGUAGES [LANGUAGES ...]]
                             [--experiment-name EXPERIMENT_NAME]
 
@@ -79,6 +94,12 @@ options:
   --config CONFIG
   --pages PAGES
   --dict-pages DICT_PAGES
+  --intro INTRO
+  --intro-pages INTRO_PAGES
+  --alphabet ALPHABET
+  --ocr-text OCR_TEXT
+  --dictionary-languages DICTIONARY_LANGUAGES
+  --toolbox-pdf TOOLBOX_PDF
   --output-dir OUTPUT_DIR
   --stage {1,2,all,2-pass-1,2-pass-2}
   --model MODEL
@@ -88,6 +109,7 @@ options:
   --overwrite
   --dry-run
   --dataset-dir DATASET_DIR
+  --samples-dir SAMPLES_DIR
   --languages LANGUAGES [LANGUAGES ...]
   --experiment-name EXPERIMENT_NAME
 ```

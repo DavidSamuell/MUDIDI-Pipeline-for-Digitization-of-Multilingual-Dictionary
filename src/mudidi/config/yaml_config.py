@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from mudidi.cli.model_args import DEFAULT_MODEL
 from mudidi.config.run_config import RunStage
+from mudidi.utils.pdf_split import parse_page_spec
 
 ConfigKind = Literal[
     "inference",
@@ -44,6 +45,8 @@ _PATH_KEYS = {
     "baseline_summary",
     "comparison_output",
     "marker_sub_list",
+    "paddle_server_python",
+    "glm_server_python",
 }
 
 
@@ -194,6 +197,17 @@ class InferenceConfig(_ExtractionConfig):
 
     kind: Literal["inference"] = "inference"
 
+    @model_validator(mode="before")
+    @classmethod
+    def apply_inference_defaults(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = deepcopy(value)
+        runtime = data.setdefault("runtime", {})
+        if isinstance(runtime, dict):
+            runtime.setdefault("use_alphabet", False)
+        return data
+
     @model_validator(mode="after")
     def require_pages(self) -> InferenceConfig:
         if self.input.pages is None:
@@ -249,6 +263,12 @@ class EvaluationOptions(_StrictModel):
     comparison_output: Path | None = None
     marker_sub_list: Path | None = None
     dictionary_languages: Path | None = None
+    experiment_name_contains: str | None = None
+    include_vlm_ocr: bool = False
+    stage1_output_subdir: str = "stage-1"
+    metrics: Literal["full", "minimal"] = "minimal"
+    alignment_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    overwrite: bool = False
 
 
 class _EvaluationConfig(_StrictModel):
@@ -358,3 +378,54 @@ def redacted_config_dict(config: MudidiConfig) -> dict[str, Any]:
     if config.source_config is not None:
         data["source_config"] = str(config.source_config)
     return data
+
+
+def validate_config_paths(config: MudidiConfig) -> None:
+    """Validate referenced inputs and page specifications without API access."""
+
+    paths: list[tuple[str, Path | None]]
+    page_specs: list[tuple[str, str | None]] = []
+    if isinstance(config, (InferenceConfig, BenchmarkRunConfig)):
+        paths = [
+            ("input.pages", config.input.pages),
+            ("input.dataset_dir", config.input.dataset_dir),
+            ("input.samples_dir", config.input.samples_dir),
+            ("input.introduction", config.input.introduction),
+            ("input.alphabet", config.input.alphabet),
+            ("input.ocr_text", config.input.ocr_text),
+            ("input.dictionary_languages", config.input.dictionary_languages),
+            ("input.toolbox_pdf", config.input.toolbox_pdf),
+            ("pipeline.parse_rules_file", config.pipeline.parse_rules_file),
+            ("pipeline.stage1_guides", config.pipeline.stage1_guides),
+            ("pipeline.stage2_guides", config.pipeline.stage2_guides),
+            ("vlm.paddle_server_python", config.vlm.paddle_server_python),
+            ("vlm.glm_server_python", config.vlm.glm_server_python),
+        ]
+        page_specs = [
+            ("input.dictionary_pages", config.input.dictionary_pages),
+            ("input.introduction_pages", config.input.introduction_pages),
+        ]
+    else:
+        paths = [
+            ("input.predicted", config.input.predicted),
+            ("input.gold", config.input.gold),
+            ("input.dataset_dir", config.input.dataset_dir),
+            ("input.pred_root", config.input.pred_root),
+            ("evaluation.baseline_summary", config.evaluation.baseline_summary),
+            ("evaluation.marker_sub_list", config.evaluation.marker_sub_list),
+            (
+                "evaluation.dictionary_languages",
+                config.evaluation.dictionary_languages,
+            ),
+        ]
+
+    missing = [label for label, path in paths if path is not None and not path.exists()]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} does not exist")
+    for label, spec in page_specs:
+        if spec is None:
+            continue
+        try:
+            parse_page_spec(spec)
+        except ValueError as exc:
+            raise ValueError(f"invalid {label}: {exc}") from exc

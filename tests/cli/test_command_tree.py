@@ -23,6 +23,48 @@ def test_public_command_tree_parses_production_run() -> None:
     assert args.dry_run is True
 
 
+def test_public_command_tree_parses_common_input_overrides() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "--pages",
+            "dictionary.pdf",
+            "--output-dir",
+            "output",
+            "--intro",
+            "introduction.pdf",
+            "--intro-pages",
+            "1-3",
+            "--alphabet",
+            "alphabet.txt",
+            "--dictionary-languages",
+            "languages.yaml",
+        ]
+    )
+
+    assert args.intro == "introduction.pdf"
+    assert args.intro_pages == "1-3"
+    assert args.alphabet == "alphabet.txt"
+    assert args.dictionary_languages == "languages.yaml"
+
+
+def test_public_command_tree_parses_benchmark_samples_override() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "benchmark",
+            "run",
+            "--samples-dir",
+            "samples",
+            "--output-dir",
+            "output",
+        ]
+    )
+
+    assert args.samples_dir == "samples"
+
+
 def test_public_command_tree_parses_benchmark_evaluation() -> None:
     parser = build_parser()
     args = parser.parse_args(

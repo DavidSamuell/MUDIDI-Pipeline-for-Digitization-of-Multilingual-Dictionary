@@ -11,6 +11,16 @@ def _add_sparse_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, default=argparse.SUPPRESS)
     parser.add_argument("--pages", default=argparse.SUPPRESS)
     parser.add_argument("--dict-pages", dest="dict_pages", default=argparse.SUPPRESS)
+    parser.add_argument("--intro", default=argparse.SUPPRESS)
+    parser.add_argument("--intro-pages", dest="intro_pages", default=argparse.SUPPRESS)
+    parser.add_argument("--alphabet", default=argparse.SUPPRESS)
+    parser.add_argument("--ocr-text", dest="ocr_text", default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--dictionary-languages",
+        dest="dictionary_languages",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument("--toolbox-pdf", dest="toolbox_pdf", default=argparse.SUPPRESS)
     parser.add_argument("--output-dir", dest="output_dir", default=argparse.SUPPRESS)
     parser.add_argument(
         "--stage",
@@ -63,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_run = benchmark_sub.add_parser("run", help="Run benchmark extraction.")
     _add_sparse_run_arguments(benchmark_run)
     benchmark_run.add_argument("--dataset-dir", default=argparse.SUPPRESS)
+    benchmark_run.add_argument("--samples-dir", default=argparse.SUPPRESS)
     benchmark_run.add_argument("--languages", nargs="+", default=argparse.SUPPRESS)
     benchmark_run.add_argument("--experiment-name", default=argparse.SUPPRESS)
     benchmark_run.set_defaults(_handler=_run_benchmark)
@@ -132,9 +143,10 @@ def _run_evaluation(args: argparse.Namespace, parser: argparse.ArgumentParser) -
 
 
 def _validate_config(args: argparse.Namespace, _parser: argparse.ArgumentParser) -> int:
-    from mudidi.config.yaml_config import load_yaml_config
+    from mudidi.config.yaml_config import load_yaml_config, validate_config_paths
 
     config = load_yaml_config(args.config)
+    validate_config_paths(config)
     print(f"Valid MUDIDI config: {config.kind} (version {config.version})")
     return 0
 

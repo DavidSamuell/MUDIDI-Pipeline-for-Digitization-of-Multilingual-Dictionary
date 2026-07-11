@@ -10,6 +10,7 @@ from mudidi.config.yaml_config import (
     InferenceConfig,
     load_yaml_config,
     merge_explicit_overrides,
+    validate_config_paths,
 )
 
 
@@ -101,3 +102,95 @@ def test_explicit_cli_overrides_replace_yaml_values() -> None:
 
     assert merged.input.languages == ["Yiddish-English"]
     assert merged.models.default == "provider/model"
+
+
+def test_advanced_vlm_python_paths_resolve_from_config_file(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    path = config_dir / "vlm.yaml"
+    path.write_text(
+        """
+version: 1
+kind: benchmark_run
+input:
+  pages: ../inputs/page.pdf
+output:
+  directory: ../outputs
+pipeline:
+  strategy: vlm_ocr
+  stage: "1"
+vlm:
+  model: paddleocr-vl-1.5
+  paddle_server_python: ../venv/bin/python
+  glm_server_python: ../glm/bin/python
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(path, expected_kind="benchmark_run")
+
+    assert config.vlm.paddle_server_python == (config_dir / "../venv/bin/python").resolve()
+    assert config.vlm.glm_server_python == (config_dir / "../glm/bin/python").resolve()
+
+
+def test_stage1_evaluation_accepts_advanced_evaluation_settings(tmp_path: Path) -> None:
+    path = tmp_path / "evaluation.yaml"
+    path.write_text(
+        """
+version: 1
+kind: stage1_evaluation
+input:
+  predicted: prediction.txt
+  gold: gold.txt
+output:
+  directory: reports
+evaluation:
+  experiment_name_contains: agentic
+  include_vlm_ocr: true
+  stage1_output_subdir: custom-stage-1
+  metrics: full
+  alignment_threshold: 0.75
+  overwrite: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(path, expected_kind="stage1_evaluation")
+
+    assert config.evaluation.experiment_name_contains == "agentic"
+    assert config.evaluation.include_vlm_ocr is True
+    assert config.evaluation.stage1_output_subdir == "custom-stage-1"
+    assert config.evaluation.metrics == "full"
+    assert config.evaluation.alignment_threshold == 0.75
+    assert config.evaluation.overwrite is True
+
+
+def test_path_validation_rejects_missing_input_but_not_output(tmp_path: Path) -> None:
+    config = InferenceConfig.model_validate(
+        {
+            "kind": "inference",
+            "input": {"pages": tmp_path / "missing.pdf"},
+            "output": {"directory": tmp_path / "new-output"},
+        }
+    )
+
+    with pytest.raises(ValueError, match="input.pages does not exist"):
+        validate_config_paths(config)
+
+
+def test_path_validation_checks_page_specs(tmp_path: Path) -> None:
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    config = InferenceConfig.model_validate(
+        {
+            "kind": "inference",
+            "input": {
+                "pages": pages,
+                "dictionary_pages": "9-2",
+            },
+            "output": {"directory": tmp_path / "output"},
+        }
+    )
+
+    with pytest.raises(ValueError, match="input.dictionary_pages"):
+        validate_config_paths(config)

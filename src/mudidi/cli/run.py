@@ -22,6 +22,7 @@ from mudidi.config.yaml_config import (
     load_yaml_config,
     merge_explicit_overrides,
     redacted_config_dict,
+    validate_config_paths,
 )
 
 
@@ -448,7 +449,14 @@ def run_from_args(run_args: argparse.Namespace, remaining: Sequence[str]) -> int
 _RUN_OVERRIDE_PATHS = {
     "pages": "input.pages",
     "dict_pages": "input.dictionary_pages",
+    "intro": "input.introduction",
+    "intro_pages": "input.introduction_pages",
+    "alphabet": "input.alphabet",
+    "ocr_text": "input.ocr_text",
+    "dictionary_languages": "input.dictionary_languages",
+    "toolbox_pdf": "input.toolbox_pdf",
     "dataset_dir": "input.dataset_dir",
+    "samples_dir": "input.samples_dir",
     "languages": "input.languages",
     "output_dir": "output.directory",
     "stage": "pipeline.stage",
@@ -458,6 +466,45 @@ _RUN_OVERRIDE_PATHS = {
     "stage_2_pass_2_model": "models.stage2_pass2",
     "overwrite": "runtime.overwrite",
     "experiment_name": "runtime.experiment_name",
+}
+
+_EVALUATION_OVERRIDE_PATHS = {
+    "predicted": "input.predicted",
+    "gold": "input.gold",
+    "dataset_dir": "input.dataset_dir",
+    "pred_root": "input.pred_root",
+    "languages": "input.languages",
+    "output_dir": "output.directory",
+    "experiment_name": "evaluation.experiment_names",
+    "all_experiments": "evaluation.all_experiments",
+    "experiment_name_contains": "evaluation.experiment_name_contains",
+    "include_vlm_ocr": "evaluation.include_vlm_ocr",
+    "stage1_output_subdir": "evaluation.stage1_output_subdir",
+    "metrics": "evaluation.metrics",
+    "alignment_threshold": "evaluation.alignment_threshold",
+    "character_alignment": "evaluation.character_alignment",
+    "per_language_script": "evaluation.per_language_script",
+    "overwrite": "evaluation.overwrite",
+    "workers": "evaluation.workers",
+    "baseline_summary": "evaluation.baseline_summary",
+    "baseline_experiment": "evaluation.baseline_experiment",
+    "comparison_output": "evaluation.comparison_output",
+    "record_threshold": "evaluation.record_threshold",
+    "line_threshold": "evaluation.line_threshold",
+    "marker_sub_list": "evaluation.marker_sub_list",
+    "dictionary_languages": "evaluation.dictionary_languages",
+}
+
+_EVALUATION_PATH_OVERRIDES = {
+    "predicted",
+    "gold",
+    "dataset_dir",
+    "pred_root",
+    "output_dir",
+    "baseline_summary",
+    "comparison_output",
+    "marker_sub_list",
+    "dictionary_languages",
 }
 
 
@@ -490,8 +537,20 @@ def resolve_extraction_config(
             input_data["pages"] = _absolute_cli_path(values["pages"])
         if "dict_pages" in values:
             input_data["dictionary_pages"] = values["dict_pages"]
-        if "dataset_dir" in values:
-            input_data["dataset_dir"] = _absolute_cli_path(values["dataset_dir"])
+        for input_name in (
+            "dataset_dir",
+            "samples_dir",
+            "intro",
+            "alphabet",
+            "ocr_text",
+            "dictionary_languages",
+            "toolbox_pdf",
+        ):
+            if input_name in values:
+                field_name = "introduction" if input_name == "intro" else input_name
+                input_data[field_name] = _absolute_cli_path(values[input_name])
+        if "intro_pages" in values:
+            input_data["introduction_pages"] = values["intro_pages"]
         if "languages" in values:
             input_data["languages"] = values["languages"]
         output = values.get("output_dir")
@@ -511,7 +570,17 @@ def resolve_extraction_config(
         if cli_name not in values:
             continue
         value = values[cli_name]
-        if cli_name in {"pages", "dataset_dir", "output_dir"}:
+        if cli_name in {
+            "pages",
+            "intro",
+            "alphabet",
+            "ocr_text",
+            "dictionary_languages",
+            "toolbox_pdf",
+            "dataset_dir",
+            "samples_dir",
+            "output_dir",
+        }:
             value = _absolute_cli_path(value)
         overrides[config_path_name] = value
     return cast(
@@ -571,8 +640,8 @@ def execution_namespace_from_config(
         stage_2_pass_1_model=models.stage2_pass1,
         stage_2_pass_2_model=models.stage2_pass2,
         structure_model=None,
-        stage1_reasoning=models.stage1_reasoning,
-        stage2_reasoning=models.stage2_reasoning,
+        stage1_reasoning_effort=models.stage1_reasoning,
+        stage2_reasoning_effort=models.stage2_reasoning,
         temperature=models.temperature,
         stage1_agentic=agentic.stage1,
         stage2_agentic=agentic.stage2,
@@ -640,6 +709,77 @@ def _write_resolved_config(config: MudidiConfig) -> None:
     )
 
 
+_PAGE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+
+
+def _count_page_files(path: Path) -> int:
+    if path.is_file():
+        return 1
+    return sum(
+        child.is_file() and child.suffix.lower() in _PAGE_SUFFIXES
+        for child in path.iterdir()
+    )
+
+
+def _execution_preview(
+    config: InferenceConfig | BenchmarkRunConfig,
+) -> dict[str, Any]:
+    """Resolve selected inputs and destinations without writes or API calls."""
+
+    if isinstance(config, InferenceConfig):
+        assert config.input.pages is not None
+        return {
+            "entry_count": 1,
+            "page_count": _count_page_files(config.input.pages),
+            "selected_input": str(config.input.pages),
+            "derived_output": str(config.output.directory),
+        }
+
+    root = config.input.dataset_dir or config.input.samples_dir
+    if root is None:
+        assert config.input.pages is not None
+        return {
+            "entry_count": 1,
+            "page_count": _count_page_files(config.input.pages),
+            "selected_input": str(config.input.pages),
+            "derived_output": str(config.output.directory),
+        }
+    requested = set(config.input.languages or [])
+    entries = []
+    skipped = []
+    page_count = 0
+    for entry in sorted(path for path in root.iterdir() if path.is_dir()):
+        if requested and entry.name not in requested:
+            continue
+        pages = entry / "Dictionary pages"
+        if not pages.is_dir():
+            pages = entry / "snippets"
+        if not pages.is_dir():
+            skipped.append(entry.name)
+            continue
+        count = _count_page_files(pages)
+        entries.append(
+            {
+                "name": entry.name,
+                "input": str(pages),
+                "page_count": count,
+                "derived_output": str(config.output.directory / entry.name),
+            }
+        )
+        page_count += count
+    missing = requested - {entry["name"] for entry in entries}
+    if missing:
+        raise ValueError(f"input.languages has no runnable entries: {sorted(missing)}")
+    if not entries:
+        raise ValueError(f"no runnable benchmark entries found under {root}")
+    return {
+        "entry_count": len(entries),
+        "page_count": page_count,
+        "entries": entries,
+        "skipped_entries": skipped,
+    }
+
+
 def run_resolved_command(
     args: argparse.Namespace,
     *,
@@ -650,10 +790,21 @@ def run_resolved_command(
 
     try:
         config = resolve_extraction_config(args, kind=kind)
+        validate_config_paths(config)
+        preview = _execution_preview(config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if getattr(args, "dry_run", False):
-        print(json.dumps(redacted_config_dict(config), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "resolved_config": redacted_config_dict(config),
+                    "preview": preview,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     configure_prompts(default_prompts_path())
@@ -684,6 +835,18 @@ def run_evaluation_command(
         config = load_yaml_config(config_path, expected_kind=cast(ConfigKind, kind))
         if not isinstance(config, (Stage1EvaluationConfig, Stage2EvaluationConfig)):
             parser.error(f"unsupported evaluation config: {config.kind}")
+        overrides: dict[str, Any] = {}
+        for cli_name, config_path_name in _EVALUATION_OVERRIDE_PATHS.items():
+            if cli_name not in values:
+                continue
+            value = values[cli_name]
+            if cli_name in _EVALUATION_PATH_OVERRIDES:
+                value = _absolute_cli_path(value)
+            overrides[config_path_name] = value
+        config = cast(
+            Stage1EvaluationConfig | Stage2EvaluationConfig,
+            merge_explicit_overrides(config, overrides),
+        )
         return evaluate(config=config)
 
     argv: list[str] = []

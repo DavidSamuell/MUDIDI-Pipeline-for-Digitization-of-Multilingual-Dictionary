@@ -263,6 +263,13 @@ Generated from the versioned Pydantic configuration union.
     "EvaluationOptions": {
       "additionalProperties": false,
       "properties": {
+        "alignment_threshold": {
+          "default": 0.6,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Alignment Threshold",
+          "type": "number"
+        },
         "all_experiments": {
           "default": false,
           "title": "All Experiments",
@@ -328,12 +335,29 @@ Generated from the versioned Pydantic configuration union.
           "default": null,
           "title": "Dictionary Languages"
         },
+        "experiment_name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Experiment Name Contains"
+        },
         "experiment_names": {
           "items": {
             "type": "string"
           },
           "title": "Experiment Names",
           "type": "array"
+        },
+        "include_vlm_ocr": {
+          "default": false,
+          "title": "Include Vlm Ocr",
+          "type": "boolean"
         },
         "line_threshold": {
           "default": 0.7,
@@ -355,6 +379,20 @@ Generated from the versioned Pydantic configuration union.
           "default": null,
           "title": "Marker Sub List"
         },
+        "metrics": {
+          "default": "minimal",
+          "enum": [
+            "full",
+            "minimal"
+          ],
+          "title": "Metrics",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
         "per_language_script": {
           "default": false,
           "title": "Per Language Script",
@@ -366,6 +404,11 @@ Generated from the versioned Pydantic configuration union.
           "minimum": 0.0,
           "title": "Record Threshold",
           "type": "number"
+        },
+        "stage1_output_subdir": {
+          "default": "stage-1",
+          "title": "Stage1 Output Subdir",
+          "type": "string"
         },
         "workers": {
           "default": 1,
