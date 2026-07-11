@@ -61,7 +61,7 @@ run_llm_flat() {
     local model="$1"
     local reasoning="$2"
     shift 2
-    if ! uv run mudidi run \
+    if ! uv run python -m mudidi.cli.extract \
         --benchmark \
         --strategy two_stage \
         --stage 1 \
@@ -132,7 +132,7 @@ run_openrouter_flat "${CLAUDE_OPUS47_MODEL}" \
 
 QWEN3_VL_MODEL="openrouter/qwen/qwen3-vl-235b-a22b-instruct"
 run_qwen3vl_flat() {
-    if ! uv run mudidi run \
+    if ! uv run python -m mudidi.cli.extract \
         --benchmark \
         --strategy two_stage \
         --stage 1 \

@@ -142,7 +142,7 @@ run_stage2() {
         echo "------------------------------------------------------------"
 
         cmd=(
-            uv run mudidi run
+            uv run python -m mudidi.cli.extract
             --benchmark
             --strategy two_stage
             --stage 2
