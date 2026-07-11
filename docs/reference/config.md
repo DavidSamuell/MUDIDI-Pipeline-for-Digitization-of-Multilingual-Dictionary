@@ -144,6 +144,9 @@ Generated from the versioned Pydantic configuration union.
           "title": "Kind",
           "type": "string"
         },
+        "mathpix": {
+          "$ref": "#/$defs/MathpixConfig"
+        },
         "models": {
           "$ref": "#/$defs/ModelsConfig"
         },
@@ -184,6 +187,118 @@ Generated from the versioned Pydantic configuration union.
         "output"
       ],
       "title": "BenchmarkRunConfig",
+      "type": "object"
+    },
+    "BenchmarkSweepConfig": {
+      "additionalProperties": false,
+      "description": "A typed collection of benchmark runs expanded from axes or a list.",
+      "properties": {
+        "axes": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "$ref": "#/$defs/SweepChoice"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "base": {
+          "$ref": "#/$defs/BenchmarkRunConfig"
+        },
+        "exclude": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Exclude",
+          "type": "array"
+        },
+        "experiment_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Experiment Name"
+        },
+        "experiments": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SweepChoice"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Experiments"
+        },
+        "kind": {
+          "const": "benchmark_sweep",
+          "default": "benchmark_sweep",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "name_field": {
+          "default": "runtime.experiment_name",
+          "enum": [
+            "runtime.experiment_name",
+            "runtime.stage2_experiment_name"
+          ],
+          "title": "Name Field",
+          "type": "string"
+        },
+        "source_config": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Config"
+        },
+        "sweep": {
+          "$ref": "#/$defs/SweepOptions"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "base"
+      ],
+      "title": "BenchmarkSweepConfig",
       "type": "object"
     },
     "EvaluationInputConfig": {
@@ -436,6 +551,9 @@ Generated from the versioned Pydantic configuration union.
           "title": "Kind",
           "type": "string"
         },
+        "mathpix": {
+          "$ref": "#/$defs/MathpixConfig"
+        },
         "models": {
           "$ref": "#/$defs/ModelsConfig"
         },
@@ -612,6 +730,19 @@ Generated from the versioned Pydantic configuration union.
           "default": null,
           "title": "Samples Dir"
         },
+        "stage1_predictions_root": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage1 Predictions Root"
+        },
         "toolbox_pdf": {
           "anyOf": [
             {
@@ -627,6 +758,32 @@ Generated from the versioned Pydantic configuration union.
         }
       },
       "title": "InputConfig",
+      "type": "object"
+    },
+    "MathpixConfig": {
+      "additionalProperties": false,
+      "description": "Mathpix Convert API polling and timeout controls.",
+      "properties": {
+        "max_wait_seconds": {
+          "default": 600.0,
+          "exclusiveMinimum": 0,
+          "title": "Max Wait Seconds",
+          "type": "number"
+        },
+        "poll_interval_seconds": {
+          "default": 3.0,
+          "exclusiveMinimum": 0,
+          "title": "Poll Interval Seconds",
+          "type": "number"
+        },
+        "request_timeout_seconds": {
+          "default": 60.0,
+          "exclusiveMinimum": 0,
+          "title": "Request Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "title": "MathpixConfig",
       "type": "object"
     },
     "ModelsConfig": {
@@ -830,7 +987,8 @@ Generated from the versioned Pydantic configuration union.
           "default": "two_stage",
           "enum": [
             "two_stage",
-            "vlm_ocr"
+            "vlm_ocr",
+            "mathpix_ocr"
           ],
           "title": "Strategy",
           "type": "string"
@@ -876,6 +1034,18 @@ Generated from the versioned Pydantic configuration union.
           ],
           "title": "Media Reference",
           "type": "string"
+        },
+        "ocr_hint_experiment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ocr Hint Experiment"
         },
         "one_page_per_entry": {
           "default": false,
@@ -1039,6 +1209,51 @@ Generated from the versioned Pydantic configuration union.
       "title": "Stage2EvaluationConfig",
       "type": "object"
     },
+    "SweepChoice": {
+      "additionalProperties": false,
+      "description": "One named axis choice or explicit benchmark experiment.",
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "set": {
+          "additionalProperties": true,
+          "title": "Set",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "set"
+      ],
+      "title": "SweepChoice",
+      "type": "object"
+    },
+    "SweepOptions": {
+      "additionalProperties": false,
+      "description": "Execution guards for an expanded benchmark sweep.",
+      "properties": {
+        "failure_policy": {
+          "default": "continue",
+          "enum": [
+            "continue",
+            "stop"
+          ],
+          "title": "Failure Policy",
+          "type": "string"
+        },
+        "max_runs": {
+          "default": 100,
+          "minimum": 1,
+          "title": "Max Runs",
+          "type": "integer"
+        }
+      },
+      "title": "SweepOptions",
+      "type": "object"
+    },
     "VlmConfig": {
       "additionalProperties": false,
       "description": "Advanced local OCR/VLM backend settings.",
@@ -1198,6 +1413,7 @@ Generated from the versioned Pydantic configuration union.
   "discriminator": {
     "mapping": {
       "benchmark_run": "#/$defs/BenchmarkRunConfig",
+      "benchmark_sweep": "#/$defs/BenchmarkSweepConfig",
       "inference": "#/$defs/InferenceConfig",
       "stage1_evaluation": "#/$defs/Stage1EvaluationConfig",
       "stage2_evaluation": "#/$defs/Stage2EvaluationConfig"
@@ -1210,6 +1426,9 @@ Generated from the versioned Pydantic configuration union.
     },
     {
       "$ref": "#/$defs/BenchmarkRunConfig"
+    },
+    {
+      "$ref": "#/$defs/BenchmarkSweepConfig"
     },
     {
       "$ref": "#/$defs/Stage1EvaluationConfig"

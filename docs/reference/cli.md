@@ -58,15 +58,16 @@ options:
 ## `mudidi benchmark`
 
 ```text
-usage: mudidi benchmark [-h] {run,evaluate} ...
+usage: mudidi benchmark [-h] {run,sweep,evaluate} ...
 
 positional arguments:
-  {run,evaluate}
-    run           Run benchmark extraction.
-    evaluate      Evaluate predictions.
+  {run,sweep,evaluate}
+    run                 Run benchmark extraction.
+    sweep               Run a typed benchmark experiment sweep.
+    evaluate            Evaluate predictions.
 
 options:
-  -h, --help      show this help message and exit
+  -h, --help            show this help message and exit
 ```
 
 ## `mudidi benchmark run`
@@ -112,6 +113,22 @@ options:
   --samples-dir SAMPLES_DIR
   --languages LANGUAGES [LANGUAGES ...]
   --experiment-name EXPERIMENT_NAME
+```
+
+## `mudidi benchmark sweep`
+
+```text
+usage: mudidi benchmark sweep [-h] --config CONFIG [--experiment EXPERIMENT]
+                              [--select SELECT] [--max-runs MAX_RUNS]
+                              [--dry-run]
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG
+  --experiment EXPERIMENT
+  --select SELECT
+  --max-runs MAX_RUNS
+  --dry-run
 ```
 
 ## `mudidi benchmark evaluate`
