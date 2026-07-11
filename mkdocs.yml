@@ -1,8 +1,8 @@
 site_name: MUDIDI
 site_description: Multilingual dictionary digitization with language models
-site_url: https://davidsamuell.github.io/MUDIDI/
-repo_url: https://github.com/DavidSamuell/MUDIDI
-repo_name: DavidSamuell/MUDIDI
+site_url: https://davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary/
+repo_url: https://github.com/DavidSamuell/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary
+repo_name: DavidSamuell/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary
 edit_uri: edit/main/docs/
 theme:
   name: material

@@ -1,7 +1,7 @@
 # MUDIDI
 
 MUDIDI's documentation is published at
-[davidsamuell.github.io/MUDIDI](https://davidsamuell.github.io/MUDIDI/) from
+[davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary](https://davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary/) from
 the repository's `main` branch.
 
 MUDIDI digitizes scanned multilingual dictionaries with a two-stage language-model pipeline:

@@ -1,6 +1,6 @@
 # MUDIDI
 
-**[Read the MUDIDI documentation](https://davidsamuell.github.io/MUDIDI/)**
+**[Read the MUDIDI documentation](https://davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary/)**
 
 MUDIDI digitizes scanned multilingual dictionaries with language models. It first creates a faithful page transcription and then converts that transcription into [SIL Toolbox MDF](https://software.sil.org/toolbox/) lexicon records.
 
@@ -13,7 +13,7 @@ dictionary pages → Stage 1 OCR → Stage 2 parse rules → MDF records
 MUDIDI supports Linux, macOS, and Windows through WSL2. It requires Python 3.11+ and [uv](https://docs.astral.sh/uv/). Install `pdftk` only when processing a multi-page source PDF.
 
 ```bash
-git clone https://github.com/DavidSamuell/MUDIDI.git
+git clone https://github.com/DavidSamuell/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary.git
 cd MUDIDI
 uv sync
 cp .env.example .env
@@ -71,7 +71,7 @@ uv run mudidi run --config examples/configs/production/directory-inference.yaml
 ## Documentation
 
 The public documentation is available at
-**[davidsamuell.github.io/MUDIDI](https://davidsamuell.github.io/MUDIDI/)** and
+**[davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary](https://davidsamuell.github.io/MUDIDI-Pipeline-for-Digitization-of-Multilingual-Dictionary/)** and
 separates two primary workflows:
 
 - **Production Inference** — digitize your own PDF or page directory.
