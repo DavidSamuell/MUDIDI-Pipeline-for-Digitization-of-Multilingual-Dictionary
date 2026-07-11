@@ -80,3 +80,5 @@ dataset/
 examples-dev/
 CLAUDE.md
 dictionaries/
+tmp
+experiment-results
