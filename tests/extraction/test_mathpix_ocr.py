@@ -65,6 +65,9 @@ def test_mathpix_entry_writes_flat_output_and_manifest(tmp_path: Path) -> None:
     )
     assert (page_dir / "output.md").is_file()
     assert (page_dir / "mathpix.lines.json").is_file()
+    assert (
+        output / "ocr-hints" / "Mathpix-OCR" / "page_1.md"
+    ).read_text(encoding="utf-8") == "# converted"
     manifest = json.loads(
         (output / "stage-1" / "Mathpix-OCR" / "run_config.json").read_text()
     )

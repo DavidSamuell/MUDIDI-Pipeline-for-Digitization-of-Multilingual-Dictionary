@@ -137,3 +137,31 @@ def test_dataset_batch_prepares_external_stage1_prediction_slot(
 
     assert result == 0
     assert observed == [True]
+
+
+def test_dataset_batch_uses_prior_experiment_as_per_entry_ocr_hints(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    pages = dataset / "Evenki-Russian" / "Dictionary pages"
+    pages.mkdir(parents=True)
+    output = tmp_path / "output"
+    hint_dir = output / "Evenki-Russian" / "ocr-hints" / "Mathpix-OCR"
+    hint_dir.mkdir(parents=True)
+    (hint_dir / "page_1.md").write_text("OCR hint", encoding="utf-8")
+    args = _batch_args(dataset, output)
+    args.ocr_hint_experiment = "Mathpix-OCR"
+    args.no_ocr_hint = False
+    observed = []
+
+    def fake_run_single(run_args, _parser):
+        observed.append(run_args.ocr_text)
+        return 0
+
+    monkeypatch.setattr(extract, "_run_single_entry", fake_run_single)
+
+    result = extract._run_samples_dir(args, argparse.ArgumentParser())
+
+    assert result == 0
+    assert observed == [str(hint_dir)]
