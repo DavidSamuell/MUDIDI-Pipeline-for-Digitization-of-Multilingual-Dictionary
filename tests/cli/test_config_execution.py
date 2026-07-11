@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from mudidi.cli.run import (
     execution_namespace_from_config,
     resolve_extraction_config,
+    run_benchmark_sweep_command,
     run_evaluation_command,
     run_resolved_command,
 )
@@ -220,3 +222,114 @@ evaluation:
     assert config.output.directory == (tmp_path / "override-output").resolve()
     assert config.evaluation.experiment_names == ["cli-one", "cli-two"]
     assert config.evaluation.workers == 2
+
+
+def test_benchmark_sweep_dry_run_expands_without_execution_or_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    dataset = tmp_path / "dataset"
+    pages = dataset / "Evenki-Russian" / "Dictionary pages"
+    pages.mkdir(parents=True)
+    (pages / "page_1.png").write_bytes(b"preview-only")
+    output = tmp_path / "output"
+    config_path = tmp_path / "sweep.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+kind: benchmark_sweep
+name: smoke
+base:
+  version: 1
+  kind: benchmark_run
+  input:
+    dataset_dir: {dataset}
+  output:
+    directory: {output}
+  pipeline:
+    stage: "1"
+experiments:
+  - {{id: first, set: {{models.stage1: provider/first}}}}
+  - {{id: second, set: {{models.stage1: provider/second}}}}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "mudidi.cli.run.execute_extraction_config",
+        lambda _config: (_ for _ in ()).throw(AssertionError("must not execute")),
+        raising=False,
+    )
+    args = argparse.Namespace(
+        config=config_path,
+        experiment=None,
+        select=None,
+        max_runs=None,
+        dry_run=True,
+    )
+
+    result = run_benchmark_sweep_command(args, parser=argparse.ArgumentParser())
+
+    assert result == 0
+    output_text = capsys.readouterr().out
+    assert '"run_count": 2' in output_text
+    assert '"entry_run_count": 2' in output_text
+    assert '"name": "first"' in output_text
+    assert not output.exists()
+
+
+def test_benchmark_sweep_executes_selected_runs_and_writes_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    pages = dataset / "Evenki-Russian" / "Dictionary pages"
+    pages.mkdir(parents=True)
+    (pages / "page_1.png").write_bytes(b"preview-only")
+    output = tmp_path / "output"
+    config_path = tmp_path / "sweep.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+kind: benchmark_sweep
+name: selected
+base:
+  version: 1
+  kind: benchmark_run
+  input: {{dataset_dir: {dataset}}}
+  output: {{directory: {output}}}
+  pipeline: {{stage: "1"}}
+experiments:
+  - {{id: first, set: {{models.stage1: provider/first}}}}
+  - {{id: second, set: {{models.stage1: provider/second}}}}
+""".strip(),
+        encoding="utf-8",
+    )
+    executed = []
+
+    def fake_execute(config):
+        executed.append(config.runtime.experiment_name)
+        return 0
+
+    monkeypatch.setattr(
+        "mudidi.cli.run.execute_extraction_config",
+        fake_execute,
+        raising=False,
+    )
+    args = argparse.Namespace(
+        config=config_path,
+        experiment=["second"],
+        select=None,
+        max_runs=None,
+        dry_run=False,
+    )
+
+    result = run_benchmark_sweep_command(args, parser=argparse.ArgumentParser())
+
+    assert result == 0
+    assert executed == ["second"]
+    manifest = output / "sweeps" / "selected" / "sweep_manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["status"] == "complete"
+    assert payload["runs"][0]["name"] == "second"
+    assert payload["runs"][0]["status"] == "complete"
